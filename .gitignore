@@ -1,0 +1,7 @@
+# private session data: profile, reports, coding workspace, transcript
+.aura/
+.aura_session.md
+resume.md
+resume.pdf
+__pycache__/
+*.pyc
