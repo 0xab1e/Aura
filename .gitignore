@@ -1,7 +1,6 @@
 # private session data: profile, reports, coding workspace, transcript
 .aura/
 .aura_session.md
-resume.md
-resume.pdf
+# resume.md and resume.pdf are intentionally tracked in this repo
 __pycache__/
 *.pyc
