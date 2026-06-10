@@ -20,22 +20,38 @@ needs `pip install pypdf`).
 ## Run
 
 ```bash
-python interview_agent.py                          # basic
+python interview_agent.py                          # CLI
+python interview_agent.py --web                    # mobile-friendly web UI (below)
 python interview_agent.py --resume resume.pdf      # tailor to your resume
-python interview_agent.py --voice                  # speak/hear (see below)
+python interview_agent.py --voice                  # CLI voice mode (see below)
 python interview_agent.py --fresh                  # ignore stored memory
 python interview_agent.py path/to/other_jd.md      # different role
 ```
 
-### In-session commands
+### Mobile-friendly web UI
 
-| Command   | What it does |
-|-----------|--------------|
-| `debrief` | Honest readiness report: strengths, gaps, study plan, score + trend |
-| `code`    | Live coding round — solve in a real file, Aura runs and reviews it |
-| `voice`   | Switch to voice mode mid-session (if voice deps are installed) |
-| `text`    | Switch back to typing mid-session |
-| `quit`    | End session: saves your profile and a readiness report |
+```bash
+python interview_agent.py --web        # open http://localhost:8765
+```
+
+On your phone (same wifi): `http://<your-computer-ip>:8765`. Responsive chat
+UI with command chips, a code editor sheet for coding rounds, a flashcard
+review sheet, and **browser-native voice** — 🎙 dictate answers, 🔊 hear
+Aura's replies — no Python audio packages needed.
+
+### In-session commands (CLI) / chips (web)
+
+| Command      | What it does |
+|--------------|--------------|
+| `review`     | Drill due flashcards (SM-2 spaced repetition, works offline) |
+| `code`       | Coding round — solve in a real file/editor, Aura runs and reviews it |
+| `behavioral` | STAR-method behavioral round; polished stories saved to `.aura/stories.md` |
+| `mock`       | Realistic mock interview: no hints, real pressure, full debrief at `end` |
+| `design`     | System-design round with interviewer-style probing |
+| `end`        | Finish the current round and return to mentoring (with debrief) |
+| `debrief`    | Honest readiness report: strengths, gaps, study plan, score + trend |
+| `voice`/`text` | Toggle CLI voice mode mid-session |
+| `quit`       | End session: saves profile, flashcards, and a readiness report |
 
 ## Features
 
@@ -46,6 +62,11 @@ python interview_agent.py path/to/other_jd.md      # different role
   lessons (spaced repetition).
 - **Coding rounds** — problems written to `.aura/workspace/`, solved in your own
   editor, executed with the agent's tests, reviewed in-conversation.
+- **Flashcards with spaced repetition** — every concept Aura teaches becomes a
+  card (harvested automatically); SM-2 scheduling decides what's due each day.
+- **Behavioral, mock & design rounds** — layered onto the *same* conversation
+  (no separate flows): STAR coaching, pressure simulation with withheld
+  feedback, and architecture probing — `end` returns seamlessly to mentoring.
 - **Resume-aware** — questions probe your actual claimed experience and flag
   resume-vs-JD gaps.
 - **Readiness reports** — saved to `.aura/reports/`, with a score trend across

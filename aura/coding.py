@@ -1,6 +1,9 @@
-"""Coding rounds: the mentor sets a problem, the candidate solves it in a
-real file in their own editor, we run it and feed code + output back into
-the conversation for review."""
+"""Coding rounds: the mentor sets a problem, the candidate solves it (in
+their editor via the CLI, or in the web UI's code box), we run it and feed
+code + output back into the conversation for review.
+
+Split into setup / review halves so both the CLI (file + 'done') and the
+web UI (textarea submit) can drive the same round."""
 
 import subprocess
 import sys
@@ -44,42 +47,58 @@ wrong or missing (correctness, edge cases, complexity, style), what an interview
 would push on. If it failed, teach the fix. Then continue the session naturally.]"""
 
 
-def run_coding_round() -> str | None:
-    """Run one full coding round. Returns the mentor's review text, or None if aborted."""
+def setup_round() -> tuple[dict, Path] | None:
+    """Ask the session for a problem; write stub + statement to a workspace dir."""
     reply = codex_turn(PROBLEM_PROMPT, first=False)
     data = extract_json(reply)
     if not isinstance(data, dict) or "statement" not in data:
-        print("(couldn't set up a coding problem — continuing the conversation)")
         return None
-
     n = len(list(WORKSPACE.glob("problem_*"))) + 1
     pdir = WORKSPACE / f"problem_{n}_{data.get('title', 'challenge')}"
     pdir.mkdir(parents=True, exist_ok=True)
-    solution = pdir / "solution.py"
-
-    statement = data["statement"]
     stub = data.get("stub", "# your solution here\n")
-    solution.write_text(f'"""\n{statement}\n"""\n\n{stub}\n')
-    (pdir / "PROBLEM.md").write_text(f"# {data.get('title', 'Coding round')}\n\n{statement}\n")
+    (pdir / "solution.py").write_text(f'"""\n{data["statement"]}\n"""\n\n{stub}\n')
+    (pdir / "PROBLEM.md").write_text(
+        f"# {data.get('title', 'Coding round')}\n\n{data['statement']}\n")
+    return data, pdir
+
+
+def review_round(data: dict, pdir: Path, code: str | None = None) -> str:
+    """Run the solution (+ agent tests) and get the in-conversation review.
+    If `code` is given (web UI), it's written to solution.py first."""
+    solution = pdir / "solution.py"
+    if code is not None:
+        solution.write_text(code)
+    code_text = solution.read_text()
+    output = _run_solution(pdir, data.get("test_code", ""))
+    review = codex_turn(
+        REVIEW_PROMPT.format(title=data.get("title", ""),
+                             code=code_text, output=output[:4000]),
+        first=False)
+    return review
+
+
+def run_coding_round() -> str | None:
+    """CLI flow: solve in your own editor, type 'done'. Returns review or None."""
+    setup = setup_round()
+    if setup is None:
+        print("(couldn't set up a coding problem — continuing the conversation)")
+        return None
+    data, pdir = setup
 
     print("\n" + "─" * 60)
     print("CODING ROUND")
     print("─" * 60)
-    print(textwrap.fill(statement, 88))
-    print(f"\nOpen this file in your editor and write your solution:\n  {solution}")
+    print(textwrap.fill(data["statement"], 88))
+    print(f"\nOpen this file in your editor and write your solution:\n  {pdir / 'solution.py'}")
     cmd = input("\nType 'done' when finished (or 'skip' to bail): ").strip().lower()
     while cmd not in ("done", "skip"):
         cmd = input("Type 'done' or 'skip': ").strip().lower()
     if cmd == "skip":
         return None
 
-    code = solution.read_text()
-    output = _run_solution(pdir, data.get("test_code", ""))
-    print("\nRun output:\n" + textwrap.indent(output[:2000], "  "))
-
-    return codex_turn(
-        REVIEW_PROMPT.format(title=data.get("title", ""), code=code, output=output[:4000]),
-        first=False)
+    review = review_round(data, pdir)
+    return review
 
 
 def _run_solution(pdir: Path, test_code: str) -> str:

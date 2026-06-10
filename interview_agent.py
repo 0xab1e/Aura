@@ -4,85 +4,29 @@ Aura – AI Interview Mentor (powered by your Codex subscription)
 
 One continuous, natural conversation: Aura interviews you, teaches gaps the
 moment they appear, and circles back later to verify the lesson stuck. It
-remembers you across sessions, can run live coding rounds, tailor itself to
-your resume, and track your readiness score over time.
+remembers you across sessions, harvests flashcards from every lesson, runs
+coding / behavioral / mock / system-design rounds, and tracks readiness.
 
 Run:
-  python interview_agent.py [path/to/jd.md] [--voice] [--resume resume.pdf] [--fresh]
+  python interview_agent.py [jd.md] [--voice] [--resume resume.pdf] [--fresh]
+  python interview_agent.py --web      # mobile-friendly UI at localhost:8765
 
-In-session commands:  debrief  |  code  |  voice  |  text  |  quit
+In-session commands:
+  review | code | behavioral | mock | design | end | debrief | voice | text | quit
 """
 
 import argparse
 import sys
 import textwrap
-from pathlib import Path
 
-from aura.backend import check_codex, codex_turn
-from aura import memory, reports
+from aura import flashcards
+from aura.backend import check_codex
 from aura.coding import run_coding_round
-from aura.context import ContextTracker, compact_session
+from aura.session import JD_FILE, AuraSession
 
-JD_FILE = "job_description.md"
 WIDTH = 88
-SESSION_LOG = Path(".aura_session.md")
-
-MENTOR_BRIEF = """\
-You are Aura, an elite interview mentor — a senior engineer who has run hundreds of
-interviews and now prepares a candidate (the user) for a specific role.
-
-THE JOB DESCRIPTION you are preparing them for:
----
-{jd}
----
-{resume_section}{memory_section}
-HOW YOU OPERATE — this is one continuous, natural conversation, not a scripted quiz:
-
-1. CONTINUOUS LEARNING LOOP. You silently maintain a mental model of the candidate:
-   which skills from the JD they've demonstrated, which are shaky, which are untested.
-   Every reply they give updates this model.
-
-2. NATURAL FLOW. Never announce "Question 3 of 10" or "Evaluation:". Talk like a
-   human mentor: react to what they said, follow up on interesting threads, dig
-   deeper when an answer is shallow, move on when it's solid. One question or one
-   teaching point at a time — never a wall of questions.
-
-3. TEACH IN THE MOMENT. When an answer reveals a gap, don't just note it — teach it
-   right there: the core intuition, a concrete example, what to say in the real
-   interview. Then weave on naturally.
-
-4. CONTINUOUS VERIFICATION. After teaching something, don't immediately quiz them on
-   it. Instead, a few exchanges later, circle back from a different angle to check it
-   actually stuck. If it didn't, teach it differently. Also re-probe shaky areas from
-   earlier in the session.
-
-5. CODING ROUNDS. The CLI can run hands-on coding rounds: the candidate solves a
-   problem in a real file and you review the code and its run output. When you think
-   a coding exercise would be valuable (the role is technical and they've warmed up),
-   suggest it — tell them to type 'code' to start one. You'll receive system tasks
-   to set the problem and review the result.
-
-6. HONEST AND WARM. Be direct about weak answers — specifics, not platitudes. Be
-   genuinely encouraging about strong ones. No corporate filler.
-
-7. WHEN THE CANDIDATE SAYS "debrief" or asks how they're doing overall, give them
-   your current mental model: strong areas, open gaps, what to study, and how ready
-   they are for this interview. Then continue the session if they want.
-
-Start now: greet them briefly (2-3 sentences), and open with a natural first question
-grounded in the most important skill in the JD{memory_hint}. Keep every turn focused
-and conversational — this should feel like a great human mentor, not a test engine.
-"""
-
-RESUME_SECTION = """
-THE CANDIDATE'S RESUME:
----
-{resume}
----
-Use it: tailor questions to their claimed experience, probe specific projects and
-claims on the resume (interviewers will), and flag gaps between the resume and the
-JD's requirements.
-"""
+COMMANDS = ("quit", "debrief", "code", "voice", "text",
+            "review", "behavioral", "mock", "design", "end")
 
 
 # ── terminal helpers ─────────────────────────────────────────────────────────
@@ -94,22 +38,18 @@ def wrap(text: str) -> str:
     return "\n".join(out)
 
 
-def say(text: str, voice: bool = False) -> str:
+def say(text: str, voice: bool = False) -> None:
     print("\n" + wrap(text) + "\n")
     if voice:
         from aura.voice import speak
         speak(text)
-    return text
-
-
-COMMANDS = ("quit", "debrief", "code", "voice", "text")
 
 
 def get_input(voice: bool = False) -> str:
     if voice:
         from aura.voice import listen
         print("You ▸ (voice mode — Enter to speak, 't' + Enter to type | "
-              "commands: debrief, code, text, quit)")
+              "commands work too)")
         first = input().strip()
         if first.lower() in COMMANDS:
             return first.lower()
@@ -123,7 +63,8 @@ def get_input(voice: bool = False) -> str:
                 return replace if replace else transcript
             print("  (heard nothing — type your answer instead)")
         # fall through to typed input
-    print("You ▸ (Enter twice to send | commands: debrief, code, voice, text, quit)")
+    print("You ▸ (Enter twice to send | review, code, behavioral, mock, design, "
+          "end, debrief, voice, text, quit)")
     lines, blanks = [], 0
     while True:
         try:
@@ -143,55 +84,27 @@ def get_input(voice: bool = False) -> str:
     return "\n".join(lines).strip()
 
 
-# ── inputs ───────────────────────────────────────────────────────────────────
-
-def load_jd(path: str) -> str:
-    p = Path(path)
-    if not p.exists():
-        print(f"ERROR: {path} not found. Put your job description there and rerun.")
-        sys.exit(1)
-    text = p.read_text().strip()
-    if not text or "Paste your target job description" in text:
-        print("ERROR: job_description.md still contains placeholder text — paste your real JD.")
-        sys.exit(1)
-    return text
-
-
-def load_resume(path: str | None) -> str:
-    if path is None:
-        default = Path("resume.md")
-        if not default.exists():
-            return ""
-        path = str(default)
-    p = Path(path)
-    if not p.exists():
-        print(f"WARNING: resume file {path} not found — continuing without it.")
-        return ""
-    if p.suffix.lower() == ".pdf":
-        try:
-            from pypdf import PdfReader
-            return "\n".join(page.extract_text() or "" for page in PdfReader(p).pages)
-        except ImportError:
-            print("WARNING: PDF resume needs `pip install pypdf` — continuing without it.")
-            return ""
-    return p.read_text().strip()
+def review_cards(deck: list[dict]) -> None:
+    due = flashcards.due_cards(deck)
+    if not due:
+        print(wrap("No flashcards due — come back after your next lesson."))
+        return
+    print(wrap(f"{len(due)} card(s) due. Grades: 0=blank, 3=hard, 4=good, 5=easy, q=stop."))
+    for card in list(due):
+        print("\n" + "─" * 40)
+        if card.get("skill"):
+            print(f"[{card['skill']}]")
+        print(wrap("Q: " + card["front"]))
+        input("(think, then press Enter to reveal) ")
+        print(wrap("A: " + card["back"]))
+        g = input("grade 0/3/4/5 (q to stop): ").strip().lower()
+        if g == "q":
+            break
+        flashcards.grade_card(deck, card, int(g) if g in "0123455" and g else 3)
+    print(wrap("Review saved."))
 
 
-def log(role: str, text: str) -> None:
-    with SESSION_LOG.open("a") as f:
-        f.write(f"\n**{role}:**\n\n{text}\n")
-
-
-# ── session ──────────────────────────────────────────────────────────────────
-
-def end_of_session(profile: dict) -> None:
-    print(wrap("Saving your profile and generating a readiness report…"))
-    memory.update_profile_from_session(profile)
-    summary = reports.generate_report()
-    if summary:
-        print("\n" + wrap(summary))
-    print("\n" + wrap("Transcript: .aura_session.md — see you next session. You've got this."))
-
+# ── main loop ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aura – AI interview mentor")
@@ -199,11 +112,16 @@ def main() -> None:
     parser.add_argument("--voice", action="store_true", help="speak answers / hear questions")
     parser.add_argument("--resume", help="resume file (md/txt/pdf); defaults to resume.md if present")
     parser.add_argument("--fresh", action="store_true", help="ignore stored memory this session")
+    parser.add_argument("--web", action="store_true", help="serve the mobile-friendly web UI")
+    parser.add_argument("--port", type=int, default=8765, help="web UI port")
     args = parser.parse_args()
 
     check_codex()
-    jd = load_jd(args.jd)
-    resume = load_resume(args.resume)
+
+    if args.web:
+        from aura.web import serve
+        serve(args.jd, args.resume, args.fresh, args.port)
+        return
 
     voice = False
     if args.voice:
@@ -212,41 +130,21 @@ def main() -> None:
         if not voice:
             print(hint)
 
-    profile = {"skills": {}, "sessions": []} if args.fresh else memory.load_profile()
-    memory_section = memory.profile_brief(profile)
-    returning = bool(memory_section)
+    s = AuraSession(args.jd, args.resume, args.fresh)
 
     print("═" * WIDTH)
     print("  AURA — your interview mentor  (backend: Codex)")
     print("═" * WIDTH)
-    print(wrap("Commands any time: 'debrief' (readiness report), 'code' (coding round), "
-               "'voice'/'text' (switch mode), 'quit'."))
+    print(wrap("Rounds: 'code', 'behavioral', 'mock', 'design' ('end' to finish one). "
+               "Also: 'review' (flashcards), 'debrief', 'voice'/'text', 'quit'."))
 
-    SESSION_LOG.write_text("# Aura session transcript\n")
-
-    brief = MENTOR_BRIEF.format(
-        jd=jd,
-        resume_section=RESUME_SECTION.format(resume=resume) if resume else "",
-        memory_section=memory_section,
-        memory_hint=(" — or, since you know this candidate already, pick up where "
-                     "you left off and start by re-verifying something you taught "
-                     "last time" if returning else ""),
-    )
-
-    # base brief (no greet-opener) used when compacting/reseeding the session
-    base_brief = MENTOR_BRIEF.format(
-        jd=jd,
-        resume_section=RESUME_SECTION.format(resume=resume) if resume else "",
-        memory_section=memory_section,
-        memory_hint="",
-    )
-    ctx = ContextTracker()
+    due = flashcards.due_cards(s.deck)
+    if due:
+        print(wrap(f"\n🃏 {len(due)} flashcard(s) due from previous sessions — a quick "
+                   "review locks in what you learned. Type 'review' any time."))
 
     say("Connecting to your mentor…")
-    reply = codex_turn(brief, first=True)
-    ctx.add(brief, reply)
-    say(f"Aura ▸ {reply}", voice)
-    log("Aura", reply)
+    say(f"Aura ▸ {s.start()}", voice)
 
     while True:
         user = get_input(voice)
@@ -254,7 +152,12 @@ def main() -> None:
             continue
 
         if user == "quit":
-            end_of_session(profile)
+            print(wrap("Saving your profile, flashcards, and readiness report…"))
+            summary = s.end()
+            if summary:
+                print("\n" + wrap(summary))
+            print("\n" + wrap("Transcript: .aura_session.md — see you next session. "
+                              "You've got this."))
             break
 
         if user == "voice":
@@ -263,53 +166,44 @@ def main() -> None:
             voice = ok
             print(wrap("Voice mode ON." if ok else hint))
             continue
-
         if user == "text":
             voice = False
             print(wrap("Text mode ON."))
             continue
 
+        if user == "review":
+            review_cards(s.deck)
+            continue
+
         if user == "code":
             review = run_coding_round()
             if review:
-                ctx.add("", review)
+                s.ctx.add("", review)
                 say(f"Aura ▸ {review}", voice)
-                log("Aura", f"[coding round review]\n{review}")
             continue
 
-        log("You", user)
-        if user == "debrief":
-            user = ("debrief — give me your current honest read: strong areas, "
-                    "open gaps, what to study, how ready I am.")
+        if user in ("behavioral", "mock", "design"):
+            say(f"Aura ▸ {s.switch_mode(user)}", voice)
+            continue
+        if user == "end":
+            say(f"Aura ▸ {s.end_round()}", voice)
+            continue
 
         try:
-            reply = codex_turn(user, first=False)
+            if user == "debrief":
+                reply, summary = s.debrief()
+                say(f"Aura ▸ {reply}", voice)
+                if summary:
+                    print(wrap(summary))
+            else:
+                say(f"Aura ▸ {s.send(user)}", voice)
         except RuntimeError as e:
             say(f"[connection hiccup: {e}] — try sending that again.")
             continue
-        ctx.add(user, reply)
-        say(f"Aura ▸ {reply}", voice)
-        log("Aura", reply)
 
-        if user.startswith("debrief"):
-            summary = reports.generate_report()
-            if summary:
-                print(wrap(summary))
-            memory.update_profile_from_session(profile)
-
-        # keep the long-running session inside the context budget:
-        # summarize -> save profile -> reseed a fresh session mid-flow
-        if ctx.needs_compact():
-            print(wrap("(compacting session memory in the background…)"))
-            try:
-                memory.update_profile_from_session(profile)
-                cont = compact_session(base_brief)
-                ctx.reset(seed_chars=len(base_brief) + len(cont))
-                if cont:
-                    say(f"Aura ▸ {cont}", voice)
-                    log("Aura", cont)
-            except RuntimeError as e:
-                say(f"[compact failed: {e}] — continuing on the current session.")
+        cont = s.maybe_compact()
+        if cont:
+            say(f"Aura ▸ {cont}", voice)
 
 
 if __name__ == "__main__":
