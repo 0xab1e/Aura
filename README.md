@@ -33,6 +33,8 @@ python interview_agent.py path/to/other_jd.md      # different role
 |-----------|--------------|
 | `debrief` | Honest readiness report: strengths, gaps, study plan, score + trend |
 | `code`    | Live coding round — solve in a real file, Aura runs and reviews it |
+| `voice`   | Switch to voice mode mid-session (if voice deps are installed) |
+| `text`    | Switch back to typing mid-session |
 | `quit`    | End session: saves your profile and a readiness report |
 
 ## Features
@@ -48,6 +50,9 @@ python interview_agent.py path/to/other_jd.md      # different role
   resume-vs-JD gaps.
 - **Readiness reports** — saved to `.aura/reports/`, with a score trend across
   sessions (e.g. `54 → 71 over 3 sessions`).
+- **Never overflows context** — long sessions are automatically compacted: Aura
+  writes itself a handoff note, the profile is saved, and a fresh model session
+  continues mid-flow. You won't notice the seam.
 
 ## Voice mode (optional)
 

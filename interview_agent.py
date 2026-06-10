@@ -10,7 +10,7 @@ your resume, and track your readiness score over time.
 Run:
   python interview_agent.py [path/to/jd.md] [--voice] [--resume resume.pdf] [--fresh]
 
-In-session commands:  debrief  |  code  |  quit
+In-session commands:  debrief  |  code  |  voice  |  text  |  quit
 """
 
 import argparse
@@ -21,6 +21,7 @@ from pathlib import Path
 from aura.backend import check_codex, codex_turn
 from aura import memory, reports
 from aura.coding import run_coding_round
+from aura.context import ContextTracker, compact_session
 
 JD_FILE = "job_description.md"
 WIDTH = 88
@@ -101,13 +102,16 @@ def say(text: str, voice: bool = False) -> str:
     return text
 
 
+COMMANDS = ("quit", "debrief", "code", "voice", "text")
+
+
 def get_input(voice: bool = False) -> str:
     if voice:
         from aura.voice import listen
-        print("You ▸ (voice mode — or type 't' + Enter to type this answer,"
-              " 'debrief'/'code'/'quit' also work)")
+        print("You ▸ (voice mode — Enter to speak, 't' + Enter to type | "
+              "commands: debrief, code, text, quit)")
         first = input().strip()
-        if first.lower() in ("debrief", "code", "quit"):
+        if first.lower() in COMMANDS:
             return first.lower()
         if first.lower() != "t" and first != "":
             return first  # they typed an answer directly
@@ -115,10 +119,11 @@ def get_input(voice: bool = False) -> str:
             transcript = listen()
             if transcript:
                 print(f'  heard: "{transcript}"')
-                if input("  Send this? (Enter = yes / type to replace): ").strip() == "":
-                    return transcript
+                replace = input("  Send this? (Enter = yes / type to replace): ").strip()
+                return replace if replace else transcript
+            print("  (heard nothing — type your answer instead)")
         # fall through to typed input
-    print("You ▸ (Enter twice to send | 'debrief' = progress check | 'code' = coding round | 'quit')")
+    print("You ▸ (Enter twice to send | commands: debrief, code, voice, text, quit)")
     lines, blanks = [], 0
     while True:
         try:
@@ -126,7 +131,7 @@ def get_input(voice: bool = False) -> str:
         except EOFError:
             break
         stripped = line.strip().lower()
-        if stripped in ("quit", "debrief", "code") and not lines:
+        if stripped in COMMANDS and not lines:
             return stripped
         if line == "":
             blanks += 1
@@ -214,7 +219,8 @@ def main() -> None:
     print("═" * WIDTH)
     print("  AURA — your interview mentor  (backend: Codex)")
     print("═" * WIDTH)
-    print(wrap("Commands any time: 'debrief' (readiness report), 'code' (coding round), 'quit'."))
+    print(wrap("Commands any time: 'debrief' (readiness report), 'code' (coding round), "
+               "'voice'/'text' (switch mode), 'quit'."))
 
     SESSION_LOG.write_text("# Aura session transcript\n")
 
@@ -227,8 +233,18 @@ def main() -> None:
                      "last time" if returning else ""),
     )
 
+    # base brief (no greet-opener) used when compacting/reseeding the session
+    base_brief = MENTOR_BRIEF.format(
+        jd=jd,
+        resume_section=RESUME_SECTION.format(resume=resume) if resume else "",
+        memory_section=memory_section,
+        memory_hint="",
+    )
+    ctx = ContextTracker()
+
     say("Connecting to your mentor…")
     reply = codex_turn(brief, first=True)
+    ctx.add(brief, reply)
     say(f"Aura ▸ {reply}", voice)
     log("Aura", reply)
 
@@ -241,9 +257,22 @@ def main() -> None:
             end_of_session(profile)
             break
 
+        if user == "voice":
+            from aura.voice import voice_available
+            ok, hint = voice_available()
+            voice = ok
+            print(wrap("Voice mode ON." if ok else hint))
+            continue
+
+        if user == "text":
+            voice = False
+            print(wrap("Text mode ON."))
+            continue
+
         if user == "code":
             review = run_coding_round()
             if review:
+                ctx.add("", review)
                 say(f"Aura ▸ {review}", voice)
                 log("Aura", f"[coding round review]\n{review}")
             continue
@@ -258,6 +287,7 @@ def main() -> None:
         except RuntimeError as e:
             say(f"[connection hiccup: {e}] — try sending that again.")
             continue
+        ctx.add(user, reply)
         say(f"Aura ▸ {reply}", voice)
         log("Aura", reply)
 
@@ -266,6 +296,20 @@ def main() -> None:
             if summary:
                 print(wrap(summary))
             memory.update_profile_from_session(profile)
+
+        # keep the long-running session inside the context budget:
+        # summarize -> save profile -> reseed a fresh session mid-flow
+        if ctx.needs_compact():
+            print(wrap("(compacting session memory in the background…)"))
+            try:
+                memory.update_profile_from_session(profile)
+                cont = compact_session(base_brief)
+                ctx.reset(seed_chars=len(base_brief) + len(cont))
+                if cont:
+                    say(f"Aura ▸ {cont}", voice)
+                    log("Aura", cont)
+            except RuntimeError as e:
+                say(f"[compact failed: {e}] — continuing on the current session.")
 
 
 if __name__ == "__main__":
