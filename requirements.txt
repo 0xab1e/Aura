@@ -1,13 +1,24 @@
-# Core: no Python packages required — the agent talks to the Codex CLI directly.
-# Prerequisite (one-time):
-#   npm install -g @openai/codex    (or: brew install codex)
-#   codex login                     (uses your ChatGPT/Codex subscription)
+# ─────────────────────────────────────────────────────────────────────────────
+# Aura — AI Interview Mentor
+#
+# CORE: zero Python dependencies. Aura talks to the Codex CLI directly and
+# the web UI uses only the Python standard library. The only prerequisite is
+# the Codex CLI itself (one-time, uses your ChatGPT subscription):
+#
+#   npm install -g @openai/codex      # or: brew install codex
+#   codex login
+#
+# The packages below are OPTIONAL extras. Install everything with:
+#   pip install -r requirements.txt
+# or pick only the sections you need.
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Optional — voice mode (--voice):
-# edge-tts
-# faster-whisper
-# sounddevice
-# numpy
+# ── Optional: CLI voice mode (`--voice` / in-session `voice` command) ────────
+# Note: the web UI (--web) does NOT need these — it uses browser-native speech.
+edge-tts>=6.1.0          # text-to-speech for Aura's replies (free, no API key)
+faster-whisper>=1.0.0    # local speech-to-text for your answers (offline)
+sounddevice>=0.4.6       # microphone capture
+numpy>=1.24.0            # audio buffer handling
 
-# Optional — PDF resume support (--resume resume.pdf):
-# pypdf
+# ── Optional: PDF resume support (`--resume resume.pdf`) ─────────────────────
+pypdf>=4.0.0             # extract text from PDF resumes
