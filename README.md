@@ -58,8 +58,11 @@ On your phone (same wifi): `http://<your-computer-ip>:8765`
 (find your IP with `ipconfig` on Windows or `ifconfig`/`ip addr` on Mac/Linux).
 
 Responsive chat UI with command chips, a bottom-sheet code editor for coding
-rounds, a flashcard review sheet, and **browser-native voice** — 🎙 dictate
-answers, 🔊 hear Aura's replies — no Python audio packages needed.
+rounds, a flashcard review sheet, and **browser-native voice** with a one-tap
+**Voice/Text switch** in the header: voice mode speaks each reply, then opens
+the mic automatically and sends when you pause — fully hands-free. You can
+also use 🎙 (dictate) and 🔊 (read aloud) individually in text mode. No Python
+audio packages needed.
 
 ### In-session commands (CLI) / chips (web)
 
