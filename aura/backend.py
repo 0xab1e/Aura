@@ -18,11 +18,10 @@ def check_codex() -> None:
 
 
 def codex_turn(prompt: str, first: bool) -> str:
-    base = ["codex", "exec", "--json", "--skip-git-repo-check",
-            "--sandbox", "read-only"]
+    base = ["codex", "exec", "--json", "--skip-git-repo-check"]
     cmd = base + [prompt] if first else \
         ["codex", "exec", "resume", "--last", "--json",
-         "--skip-git-repo-check", "--sandbox", "read-only", prompt]
+         "--skip-git-repo-check", prompt]
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
