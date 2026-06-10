@@ -1,1 +1,4 @@
-anthropic>=0.40.0
+# No Python packages required — the agent talks to the Codex CLI directly.
+# Prerequisite (one-time):
+#   npm install -g @openai/codex    (or: brew install codex)
+#   codex login                     (uses your ChatGPT/Codex subscription)
