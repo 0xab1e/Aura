@@ -283,8 +283,8 @@
   <div id="composer"><div class="stack">
     <div id="recordPreview">
       <audio id="recordAudio" controls></audio>
-      <button class="miniBtn send" onclick="sendPendingAudio()">Send</button>
-      <button class="miniBtn" onclick="discardPendingAudio()">Discard</button>
+      <button class="miniBtn send" id="recordSendBtn" onclick="sendPendingAudio()">Send</button>
+      <button class="miniBtn" id="recordDiscardBtn" onclick="discardPendingAudio()">Discard</button>
     </div>
     <div class="inner">
       <textarea id="input" rows="1" placeholder="Type your answer…"></textarea>
@@ -1231,14 +1231,15 @@ function discardPendingAudio(showToast=true){
   if(showToast) toast('Recording discarded.');
 }
 async function sendPendingAudio(){
-  if(!pendingAudio) return;
-  const blob = pendingAudio;
-  discardPendingAudio(false);
-  await sendAudio(blob);
+  if(!pendingAudio || busy) return;
+  await sendAudio(pendingAudio);
 }
 async function sendAudio(blob){
   if(chatMode === 'mentor' && !sessionLive){ await startMentor(); if(!sessionLive) return; }
   busy = true; typing(true);
+  $('recordSendBtn').disabled = true;
+  $('recordDiscardBtn').disabled = true;
+  $('recordSendBtn').textContent = 'Sending...';
   addMsg('sys', '— transcribing your voice answer… —');
   try{
     const data_b64 = await blobToBase64(blob);
@@ -1249,14 +1250,26 @@ async function sendAudio(blob){
       data_b64
     });
     busy = false; typing(false);
-    if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+    $('recordSendBtn').disabled = false;
+    $('recordDiscardBtn').disabled = false;
+    $('recordSendBtn').textContent = 'Send';
+    if(res.error){
+      addMsg('sys', '⚠ ' + res.error + ' The recording is still here — tap Send to retry.');
+      toast('Send failed. Listen again or retry the same recording.', 4500);
+      return;
+    }
+    discardPendingAudio(false);
     addMsg('me', res.text || '[voice answer]');
     addMsg('ai', res.reply);
     (res.extra || []).forEach(x => addMsg('sys', x));
     if(res.mode){ roundMode = res.mode; setChatHeader(); }
   }catch(e){
     busy = false; typing(false);
-    addMsg('sys', '⚠ Could not upload that recording. Try again.');
+    $('recordSendBtn').disabled = false;
+    $('recordDiscardBtn').disabled = false;
+    $('recordSendBtn').textContent = 'Send';
+    addMsg('sys', '⚠ Could not upload that recording. The recording is still here — tap Send to retry.');
+    toast('Connection failed. Retry the same recording when ready.', 4500);
   }
 }
 
