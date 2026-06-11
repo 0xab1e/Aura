@@ -110,6 +110,15 @@
             border-top:1px solid var(--line)}
   #composer .inner{display:flex;gap:8px;align-items:flex-end;flex:1;
                    max-width:720px;margin:0 auto;width:100%}
+  #composer .stack{display:flex;flex-direction:column;gap:8px;flex:1;
+                   max-width:720px;margin:0 auto;width:100%}
+  #recordPreview{display:none;align-items:center;gap:8px;background:var(--input);
+                 border:1px solid var(--line);border-radius:12px;padding:8px}
+  #recordPreview.show{display:flex}
+  #recordPreview audio{flex:1;min-width:0;height:36px}
+  .miniBtn{border:none;border-radius:9px;padding:8px 11px;font-size:12.5px;
+           font-weight:650;color:#fff;background:#262a38;cursor:pointer}
+  .miniBtn.send{background:var(--accent)}
   #input{flex:1;background:var(--input);border:1px solid var(--line);border-radius:22px;
          color:var(--text);padding:11px 16px;font-size:16px;resize:none;
          max-height:120px;outline:none}
@@ -268,11 +277,18 @@
   <div id="chatList"></div>
   <div id="roundBar"><span>🎯 <b id="roundName"></b> round in progress</span>
     <button onclick="cmd('end')">End round &amp; get feedback</button></div>
-  <div id="composer"><div class="inner">
-    <textarea id="input" rows="1" placeholder="Type your answer…"></textarea>
-    <button class="iconbtn dim" id="micBtn" title="start voice recording"
-            aria-label="start voice recording" onclick="toggleMic()">🎙</button>
-    <button class="iconbtn" onclick="sendMsg()">➤</button>
+  <div id="composer"><div class="stack">
+    <div id="recordPreview">
+      <audio id="recordAudio" controls></audio>
+      <button class="miniBtn send" onclick="sendPendingAudio()">Send</button>
+      <button class="miniBtn" onclick="discardPendingAudio()">Discard</button>
+    </div>
+    <div class="inner">
+      <textarea id="input" rows="1" placeholder="Type your answer…"></textarea>
+      <button class="iconbtn dim" id="micBtn" title="start voice recording"
+              aria-label="start voice recording" onclick="toggleMic()">🎙</button>
+      <button class="iconbtn" onclick="sendMsg()">➤</button>
+    </div>
   </div></div>
 </div>
 
@@ -360,7 +376,7 @@ let roundMode = 'mentor';           // mentor | behavioral | mock | design
 let curEpisode = null;              // {ci, ei, title}
 let mentorMsgs = [], episodeMsgs = [];
 let stat = {due:0, plan:null};
-let busy = false, rec = null, recChunks = [];
+let busy = false, rec = null, recChunks = [], pendingAudio = null, pendingAudioUrl = '';
 let planCache = null;
 
 const $ = id => document.getElementById(id);
@@ -1148,7 +1164,7 @@ async function toggleMic(){
       setMicState(false);
       const blob = new Blob(recChunks, {type: rec.mimeType || mime || 'audio/webm'});
       rec = null; recChunks = [];
-      if(blob.size) sendAudio(blob);
+      if(blob.size) setPendingAudio(blob);
     };
     rec.onerror = () => {
       stream.getTracks().forEach(t => t.stop());
@@ -1162,6 +1178,28 @@ async function toggleMic(){
     rec = null; recChunks = []; setMicState(false);
     toast('Microphone permission is blocked. Allow mic access in your browser.', 4200);
   }
+}
+function setPendingAudio(blob){
+  discardPendingAudio(false);
+  pendingAudio = blob;
+  pendingAudioUrl = URL.createObjectURL(blob);
+  $('recordAudio').src = pendingAudioUrl;
+  $('recordPreview').classList.add('show');
+  toast('Recording ready. Listen, then send or discard.', 3500);
+}
+function discardPendingAudio(showToast=true){
+  if(pendingAudioUrl) URL.revokeObjectURL(pendingAudioUrl);
+  pendingAudio = null; pendingAudioUrl = '';
+  const audio = $('recordAudio');
+  if(audio){ audio.pause(); audio.removeAttribute('src'); audio.load(); }
+  $('recordPreview').classList.remove('show');
+  if(showToast) toast('Recording discarded.');
+}
+async function sendPendingAudio(){
+  if(!pendingAudio) return;
+  const blob = pendingAudio;
+  discardPendingAudio(false);
+  await sendAudio(blob);
 }
 async function sendAudio(blob){
   if(chatMode === 'mentor' && !sessionLive){ await startMentor(); if(!sessionLive) return; }
