@@ -28,6 +28,12 @@ from .users import MAX_UPLOAD_BYTES, UserStore
 
 PROFILE_SAVE_EVERY = 6   # mentor turns between background profile saves
 _whisper_model = None
+WHISPER_MODEL = "small.en"
+WHISPER_PROMPT = (
+    "Interview practice answer about embedded software, C, C++, null pointer "
+    "access, UART, ring buffer, RTOS, firmware, debugging, system design, "
+    "behavioral interviews, and coding interviews."
+)
 TRANSCRIBE_PROMPT = """\
 The user recorded an interview-practice answer as an audio file.
 
@@ -215,8 +221,16 @@ def _transcribe_audio_with_whisper(path: Path) -> str:
             "server voice transcription needs `pip install faster-whisper`"
         ) from e
     if _whisper_model is None:
-        _whisper_model = WhisperModel("base.en", compute_type="int8")
-    segments, _ = _whisper_model.transcribe(str(path), language="en")
+        _whisper_model = WhisperModel(WHISPER_MODEL, compute_type="int8")
+    segments, _ = _whisper_model.transcribe(
+        str(path),
+        language="en",
+        beam_size=5,
+        best_of=5,
+        vad_filter=True,
+        condition_on_previous_text=False,
+        initial_prompt=WHISPER_PROMPT,
+    )
     return " ".join(s.text.strip() for s in segments).strip()
 
 
