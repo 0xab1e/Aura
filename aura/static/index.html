@@ -83,7 +83,20 @@
        word-wrap:break-word;font-size:15px}
   .me{align-self:flex-end;background:var(--bubble-me);border-bottom-right-radius:4px}
   .ai{align-self:flex-start;background:var(--bubble-ai);border:1px solid var(--line);
-      border-bottom-left-radius:4px}
+      border-bottom-left-radius:4px;white-space:normal}
+  .ai p{margin:0 0 8px}
+  .ai p:last-child,.ai ul:last-child,.ai ol:last-child,.ai pre:last-child{margin-bottom:0}
+  .ai pre{background:#0a0d14;border:1px solid var(--line);border-radius:10px;
+      padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre;
+      font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .ai code{background:#0a0d14;border:1px solid var(--line);border-radius:5px;
+      padding:1px 5px;font:.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      color:#9ecbff}
+  .ai pre code{background:none;border:none;padding:0;color:#d7e3ff;font-size:12.5px}
+  .ai ul,.ai ol{margin:4px 0 8px;padding-left:22px}
+  .ai li{margin:3px 0}
+  .ai h4{font-size:15px;margin:10px 0 4px}
+  .ai b{color:#fff}
   .sys{align-self:center;color:var(--muted);font-size:13px;text-align:center;max-width:94%}
   .typing{align-self:flex-start;color:var(--muted);font-size:13px;padding:4px 14px}
   #roundBar{display:none;align-items:center;gap:10px;padding:8px 14px;
@@ -518,26 +531,71 @@ function paintHome(){
   el.innerHTML = h;
 }
 
+/* ═══════════ markdown rendering (AI replies) ═══════════ */
+function md(src){
+  // fenced code blocks out first, so nothing inside them is transformed
+  const blocks = [];
+  src = src.replace(/```\w*\r?\n?([\s\S]*?)```/g, (m, code) => {
+    blocks.push(code.replace(/\n+$/, ''));
+    return '\u0000' + (blocks.length - 1) + '\u0000';
+  });
+  let t = src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  t = t.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,;:!?])/gm, '$1<i>$2</i>');
+  t = t.replace(/^#{1,4} +(.+)$/gm, '<h4>$1</h4>');
+  // line-level: lists and paragraphs
+  const out = [];
+  let list = null, para = [];
+  const endPara = () => { if(para.length){ out.push('<p>' + para.join('<br>') + '</p>'); para = []; } };
+  const endList = () => { if(list){ out.push('</' + list + '>'); list = null; } };
+  t.split('\n').forEach(line => {
+    const ul = /^\s*[-*•]\s+(.*)$/.exec(line);
+    const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    if(ul || ol){
+      endPara();
+      const want = ul ? 'ul' : 'ol';
+      if(list !== want){ endList(); out.push('<' + want + '>'); list = want; }
+      out.push('<li>' + (ul ? ul[1] : ol[1]) + '</li>');
+    } else if(/^\s*$/.test(line)){ endPara(); endList(); }
+    else if(/^<h4>/.test(line.trim()) || /^\u0000\d+\u0000$/.test(line.trim())){
+      endPara(); endList(); out.push(line.trim());
+    } else { endList(); para.push(line); }
+  });
+  endPara(); endList();
+  return out.join('').replace(/\u0000(\d+)\u0000/g, (m, i) =>
+    '<pre><code>' + blocks[+i].replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>');
+}
+function speechText(t){
+  return t.replace(/```[\s\S]*?```/g, ' — code example on screen — ')
+          .replace(/`([^`\n]+)`/g, '$1')
+          .replace(/\*\*?/g, '')
+          .replace(/^#+\s*/gm, '');
+}
+
 /* ═══════════ chat (mentor + episode share this screen) ═══════════ */
 function msgsNow(){ return chatMode === 'episode' ? episodeMsgs : mentorMsgs; }
+function msgEl(role, text){
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  if(role === 'ai') d.innerHTML = md(text);
+  else d.textContent = text;
+  return d;
+}
 function renderChat(){
   const list = $('chatList'); list.innerHTML = '';
-  msgsNow().forEach(m => {
-    const d = document.createElement('div');
-    d.className = 'msg ' + m.role; d.textContent = m.text; list.appendChild(d);
-  });
+  msgsNow().forEach(m => list.appendChild(msgEl(m.role, m.text)));
   list.scrollTop = list.scrollHeight;
 }
 function addMsg(role, text){
   if(!text) return;
   msgsNow().push({role, text});
   const list = $('chatList');
-  const d = document.createElement('div');
-  d.className = 'msg ' + role; d.textContent = text;
-  list.appendChild(d); list.scrollTop = list.scrollHeight;
+  list.appendChild(msgEl(role, text));
+  list.scrollTop = list.scrollHeight;
   if(role === 'ai'){
-    if(voiceMode) speak(text, autoListen);
-    else if(speakOn) speak(text);
+    if(voiceMode) speak(speechText(text), autoListen);
+    else if(speakOn) speak(speechText(text));
   }
 }
 function typing(on){
