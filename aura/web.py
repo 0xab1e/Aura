@@ -27,6 +27,7 @@ from .session import AuraSession, SetupError, load_jd, load_resume
 from .users import MAX_UPLOAD_BYTES, UserStore
 
 PROFILE_SAVE_EVERY = 6   # mentor turns between background profile saves
+_whisper_model = None
 TRANSCRIBE_PROMPT = """\
 The user recorded an interview-practice answer as an audio file.
 
@@ -192,14 +193,31 @@ def _save_audio_upload(user: UserStore, body: dict) -> tuple[Path, str]:
 
 def _transcribe_audio(path: Path, mime: str) -> str:
     prompt = TRANSCRIBE_PROMPT.format(path=path.resolve())
-    text = CodexThread().turn(prompt, first=True).strip()
+    try:
+        text = CodexThread().turn(prompt, first=True, timeout=45).strip()
+    except RuntimeError:
+        text = _transcribe_audio_with_whisper(path)
     if text.startswith("```") and text.endswith("```"):
         text = text.strip("`").strip()
         if text.lower().startswith("text"):
             text = text[4:].strip()
     if not text:
-        raise RuntimeError("Codex returned no transcript")
+        text = _transcribe_audio_with_whisper(path)
     return text
+
+
+def _transcribe_audio_with_whisper(path: Path) -> str:
+    global _whisper_model
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as e:
+        raise RuntimeError(
+            "server voice transcription needs `pip install faster-whisper`"
+        ) from e
+    if _whisper_model is None:
+        _whisper_model = WhisperModel("base.en", compute_type="int8")
+    segments, _ = _whisper_model.transcribe(str(path), language="en")
+    return " ".join(s.text.strip() for s in segments).strip()
 
 
 def _send_mentor_text(user: UserStore, entry: dict, text: str) -> dict:

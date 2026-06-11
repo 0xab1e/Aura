@@ -26,7 +26,8 @@ class CodexThread:
     def __init__(self):
         self.thread_id: str | None = None
 
-    def turn(self, prompt: str, first: bool = False) -> str:
+    def turn(self, prompt: str, first: bool = False,
+             timeout: int | None = None) -> str:
         base = ["codex", "exec", "--json", "--skip-git-repo-check"]
         if first or self.thread_id is None:
             cmd = base + [prompt]
@@ -34,7 +35,11 @@ class CodexThread:
             cmd = ["codex", "exec", "resume", self.thread_id, "--json",
                    "--skip-git-repo-check", prompt]
 
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("codex exec timed out") from e
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or "codex exec failed")
 
