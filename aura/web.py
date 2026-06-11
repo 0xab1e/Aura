@@ -124,6 +124,38 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
     if path.startswith("/api/learn/"):
         return _handle_learn(path, body, user, entry)
 
+    # ── session-independent: dashboard status + flashcard review ────────
+    if path == "/api/status":
+        deck = flashcards.load_deck(user.deck_file)
+        cur = curriculum.load_curriculum(user)
+        plan = None
+        if cur:
+            eps = [e for c in cur["chapters"] for e in c["episodes"]]
+            plan = {"total": len(eps),
+                    "done": sum(1 for e in eps if e["status"] == "done")}
+        return {"has_jd": user.has_jd, "has_resume": user.has_resume,
+                "due": len(flashcards.due_cards(deck)),
+                "started": entry["started"], "plan": plan,
+                "episode_live": entry.get("episode") is not None,
+                "display_name": user.display_name}
+
+    if path == "/api/review/next":
+        deck = flashcards.load_deck(user.deck_file)
+        due = flashcards.due_cards(deck)
+        if not due:
+            return {"done": True, "total": len(deck)}
+        c = due[0]
+        return {"done": False, "front": c["front"], "back": c["back"],
+                "skill": c.get("skill", ""), "remaining": len(due)}
+
+    if path == "/api/review/grade":
+        deck = flashcards.load_deck(user.deck_file)
+        due = flashcards.due_cards(deck)
+        if due:
+            flashcards.grade_card(deck, due[0], int(body.get("quality", 3)),
+                                  user.deck_file)
+        return {"ok": True}
+
     s = entry["session"]
     if s is None or not entry["started"]:
         return {"error": "session not started — reload the page",
@@ -179,21 +211,6 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         _remember(entry, "ai", review)
         return {"reply": review, "mode": s.mode}
 
-    if path == "/api/review/next":
-        due = flashcards.due_cards(s.deck)
-        if not due:
-            return {"done": True}
-        c = due[0]
-        return {"done": False, "front": c["front"], "back": c["back"],
-                "skill": c.get("skill", ""), "remaining": len(due)}
-
-    if path == "/api/review/grade":
-        due = flashcards.due_cards(s.deck)
-        if due:
-            flashcards.grade_card(s.deck, due[0], int(body.get("quality", 3)),
-                                  user.deck_file)
-        return {"ok": True}
-
     return {"error": "not found"}
 
 
@@ -211,7 +228,7 @@ def _handle_learn(path: str, body: dict, user: UserStore,
     profile and flashcard deck."""
     if path == "/api/learn/plan":
         cur = None if body.get("regenerate") else curriculum.load_curriculum(user)
-        if cur is None:
+        if cur is None and (body.get("build") or body.get("regenerate")):
             try:
                 jd, resume = _user_docs(user)
             except SetupError as e:
@@ -221,7 +238,7 @@ def _handle_learn(path: str, body: dict, user: UserStore,
                 cur = curriculum.generate_curriculum(user, jd, resume, profile)
             except RuntimeError as e:
                 return {"error": str(e)}
-        return {"plan": cur}
+        return {"plan": cur}   # plan may be null -> client offers to build it
 
     if path == "/api/learn/start":
         try:

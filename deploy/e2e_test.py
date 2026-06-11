@@ -89,8 +89,10 @@ r = post("/api/start", {"user": bob})
 assert r.get("need_setup"), r
 print("7. second user is isolated and asked for his own JD: OK")
 
-# 8. topic plan generated from HER docs (covers JD topics + resume + job)
+# 8. topic plan: not auto-built, then generated from HER docs on demand
 r = post("/api/learn/plan", {"user": alice})
+assert r.get("plan") is None, r
+r = post("/api/learn/plan", {"user": alice, "build": True})
 assert r.get("plan") and r["plan"]["chapters"], r
 chapters = r["plan"]["chapters"]
 n_eps = sum(len(c["episodes"]) for c in chapters)
@@ -118,9 +120,15 @@ ep0 = r["plan"]["chapters"][0]["episodes"][0]
 assert ep0["status"] == "done", ep0
 print("11. plan shows the episode as done with its score: OK")
 
-# 12. bob has no plan access without a JD
-r = post("/api/learn/plan", {"user": bob})
+# 12. bob can't build a plan without his own JD
+r = post("/api/learn/plan", {"user": bob, "build": True})
 assert r.get("need_setup"), r
 print("12. second user's plan requires his own JD: OK")
+
+# 13. dashboard status endpoint
+r = post("/api/status", {"user": alice})
+assert r["has_jd"] and r["plan"]["done"] == 1, r
+print(f"13. status: plan {r['plan']['done']}/{r['plan']['total']} done, "
+      f"{r['due']} cards due: OK")
 
 print("\nALL E2E TESTS PASS")

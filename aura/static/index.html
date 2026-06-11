@@ -3,195 +3,294 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Aura — Interview Mentor</title>
+<title>Aura — Interview Coach</title>
 <style>
   :root{
-    --bg:#0f1117; --panel:#181b24; --bubble-me:#2b5cff; --bubble-ai:#222633;
-    --text:#e8eaf0; --muted:#8a90a3; --accent:#4f7cff; --radius:16px;
+    --bg:#0b0d12; --card:#161922; --line:#232838; --input:#10131b;
+    --text:#e8eaf0; --muted:#8a90a3; --accent:#4f7cff; --accent2:#8b5cf6;
+    --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+    --bubble-me:#2b5cff; --bubble-ai:#1d212e;
+    --grad:linear-gradient(135deg,#4f7cff,#8b5cf6);
   }
-  *{box-sizing:border-box;margin:0;padding:0}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
   body{background:var(--bg);color:var(--text);
        font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-       display:flex;flex-direction:column;height:100dvh}
-  header{padding:max(env(safe-area-inset-top),10px) 16px 10px;background:var(--panel);
-         display:flex;align-items:center;gap:10px;border-bottom:1px solid #262a38}
-  header h1{font-size:17px;font-weight:600}
-  #who{font-size:12px;color:var(--muted);background:#262a38;padding:2px 10px;
-       border-radius:99px;cursor:pointer;max-width:110px;overflow:hidden;
-       text-overflow:ellipsis;white-space:nowrap}
-  #mode{font-size:12px;color:var(--muted);background:#262a38;padding:2px 10px;border-radius:99px}
-  #due{font-size:12px;color:#ffd166;margin-left:auto}
-  #ioToggle{border:none;border-radius:99px;padding:6px 14px;font-size:13px;cursor:pointer;
-            background:#262a38;color:var(--text)}
-  #ioToggle.voice{background:#1f8a4c;color:#fff}
-  #chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;
-        -webkit-overflow-scrolling:touch}
-  .msg{max-width:88%;padding:10px 14px;border-radius:var(--radius);white-space:pre-wrap;
+       display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  /* ── screens & layout ── */
+  .screen{flex:1;display:none;flex-direction:column;overflow:hidden;min-height:0}
+  .screen.active{display:flex}
+  .scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+          padding:16px 16px 24px;max-width:720px;width:100%;margin:0 auto}
+  .topbar{display:flex;align-items:center;gap:10px;
+          padding:max(env(safe-area-inset-top),10px) 16px 10px;
+          background:var(--card);border-bottom:1px solid var(--line)}
+  .topbar h1{font-size:17px;font-weight:650;flex:1;white-space:nowrap;
+             overflow:hidden;text-overflow:ellipsis}
+  .topbar .sub{font-size:12px;color:var(--muted);font-weight:400;display:block}
+  .pill{font-size:12px;background:#262a38;color:var(--muted);
+        padding:3px 10px;border-radius:99px;white-space:nowrap}
+  .pill.live{background:#103524;color:var(--good)}
+  /* ── tab bar ── */
+  #tabbar{display:flex;background:var(--card);border-top:1px solid var(--line);
+          padding-bottom:max(env(safe-area-inset-bottom),4px)}
+  .tab{flex:1;border:none;background:none;color:var(--muted);cursor:pointer;
+       display:flex;flex-direction:column;align-items:center;gap:1px;
+       padding:8px 0 4px;font-size:10.5px;position:relative}
+  .tab .ico{font-size:20px;line-height:1.2}
+  .tab.active{color:#fff}
+  .tab .badge{position:absolute;top:4px;right:calc(50% - 22px);background:var(--bad);
+              color:#fff;font-size:10px;font-weight:700;border-radius:99px;
+              padding:0 5px;min-width:16px;line-height:16px}
+  body.noauth #tabbar{display:none}
+  /* ── buttons & cards ── */
+  .btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
+       font-size:15.5px;font-weight:600;cursor:pointer;color:#fff;
+       background:var(--grad);text-align:center}
+  .btn.gray{background:#262a38}
+  .btn.small{width:auto;padding:9px 16px;font-size:13.5px;border-radius:10px;display:inline-block}
+  .btn:disabled{opacity:.45;cursor:default}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;
+        padding:16px;margin-top:14px}
+  .card h3{font-size:16px;display:flex;align-items:center;gap:8px}
+  .card p{color:var(--muted);font-size:13.5px;margin:6px 0 0}
+  .card .act{margin-top:12px}
+  .tappable{cursor:pointer;transition:border-color .15s}
+  .tappable:active{border-color:var(--accent)}
+  .rowflex{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .rowflex .btn{flex:1;min-width:130px}
+  /* ── progress bar ── */
+  .bar{height:8px;border-radius:99px;background:#262a38;margin-top:12px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--grad);border-radius:99px;
+         transition:width .4s}
+  /* ── hero (home) ── */
+  .hero{background:var(--grad);border-radius:20px;padding:20px;margin-top:4px}
+  .hero h2{font-size:21px}
+  .hero p{font-size:13.5px;opacity:.92;margin-top:4px}
+  /* ── steps (setup guidance) ── */
+  .step{display:flex;gap:12px;align-items:flex-start;margin-top:12px}
+  .step .n{flex:0 0 26px;height:26px;border-radius:50%;background:#262a38;
+           display:flex;align-items:center;justify-content:center;
+           font-size:13px;font-weight:700}
+  .step.done .n{background:var(--good);color:#06281a}
+  .step .t{font-size:14.5px;font-weight:600}
+  .step .d{font-size:12.5px;color:var(--muted)}
+  /* ── chat ── */
+  #chatList{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+            padding:14px;display:flex;flex-direction:column;gap:10px;
+            max-width:720px;width:100%;margin:0 auto}
+  .msg{max-width:88%;padding:10px 14px;border-radius:16px;white-space:pre-wrap;
        word-wrap:break-word;font-size:15px}
   .me{align-self:flex-end;background:var(--bubble-me);border-bottom-right-radius:4px}
-  .ai{align-self:flex-start;background:var(--bubble-ai);border-bottom-left-radius:4px}
-  .sys{align-self:center;color:var(--muted);font-size:13px;text-align:center}
+  .ai{align-self:flex-start;background:var(--bubble-ai);border:1px solid var(--line);
+      border-bottom-left-radius:4px}
+  .sys{align-self:center;color:var(--muted);font-size:13px;text-align:center;max-width:94%}
   .typing{align-self:flex-start;color:var(--muted);font-size:13px;padding:4px 14px}
-  #chips{display:flex;gap:8px;overflow-x:auto;padding:8px 12px;background:var(--panel);
-         border-top:1px solid #262a38;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-  #chips::-webkit-scrollbar{display:none}
-  .chip{flex:0 0 auto;background:#262a38;color:var(--text);border:none;border-radius:99px;
-        padding:7px 14px;font-size:13px;cursor:pointer}
-  .chip:active{background:var(--accent)}
-  #composer{display:flex;gap:8px;padding:10px 12px max(env(safe-area-inset-bottom),10px);
-            background:var(--panel)}
-  #input{flex:1;background:#10131b;border:1px solid #2a2f40;border-radius:22px;color:var(--text);
-         padding:11px 16px;font-size:16px;resize:none;max-height:120px;outline:none}
-  .iconbtn{width:44px;height:44px;border-radius:50%;border:none;font-size:18px;cursor:pointer;
-           background:var(--accent);color:#fff;flex:0 0 auto}
+  #roundBar{display:none;align-items:center;gap:10px;padding:8px 14px;
+            background:#1c1430;border-top:1px solid #34255c;font-size:13px}
+  #roundBar.show{display:flex}
+  #roundBar b{color:#c4b5fd}
+  #roundBar button{margin-left:auto;border:none;border-radius:9px;padding:7px 12px;
+                   font-size:12.5px;cursor:pointer;background:#4c1d95;color:#fff}
+  #composer{display:flex;gap:8px;align-items:flex-end;
+            padding:10px 12px 10px;background:var(--card);
+            border-top:1px solid var(--line)}
+  #composer .inner{display:flex;gap:8px;align-items:flex-end;flex:1;
+                   max-width:720px;margin:0 auto;width:100%}
+  #input{flex:1;background:var(--input);border:1px solid var(--line);border-radius:22px;
+         color:var(--text);padding:11px 16px;font-size:16px;resize:none;
+         max-height:120px;outline:none}
+  .iconbtn{width:44px;height:44px;border-radius:50%;border:none;font-size:18px;
+           cursor:pointer;background:var(--accent);color:#fff;flex:0 0 auto}
+  .iconbtn.dim{background:#262a38}
+  .iconbtn.on{background:#1f8a4c}
   #micBtn.listening{background:#e0245e;animation:pulse 1.2s infinite}
   @keyframes pulse{50%{opacity:.6}}
-  #speakBtn{background:#262a38}
-  #speakBtn.on{background:#1f8a4c}
-  /* modals */
-  .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;
-         align-items:flex-end;justify-content:center;z-index:10}
-  .modal.open{display:flex}
-  .modal.center{align-items:center;padding:18px}
-  .sheet{background:var(--panel);width:100%;max-width:680px;max-height:88dvh;overflow-y:auto;
-         border-radius:20px 20px 0 0;padding:18px 16px max(env(safe-area-inset-bottom),18px)}
-  .modal.center .sheet{border-radius:20px}
-  .sheet h2{font-size:16px;margin-bottom:10px}
-  .sheet p{color:var(--muted);font-size:13px;margin:6px 0}
-  .sheet pre{white-space:pre-wrap;background:#10131b;padding:12px;border-radius:12px;
-             font-size:13px;margin:10px 0}
-  .sheet textarea{width:100%;min-height:220px;background:#10131b;color:#d7e3ff;
-                  border:1px solid #2a2f40;border-radius:12px;padding:12px;
-                  font:13px/1.5 ui-monospace,Menlo,monospace}
-  .sheet input[type=text]{width:100%;background:#10131b;border:1px solid #2a2f40;
-                  border-radius:12px;color:var(--text);padding:12px 14px;font-size:16px;
-                  outline:none;margin:8px 0}
-  .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .btn{flex:1;min-width:90px;padding:12px;border:none;border-radius:12px;font-size:15px;
-       background:var(--accent);color:#fff;cursor:pointer}
-  .btn.gray{background:#262a38}
-  .btn:disabled{opacity:.45;cursor:default}
-  .grade{flex:1;min-width:64px;padding:12px 6px;font-size:13px}
-  .g0{background:#7a2334}.g3{background:#7a6223}.g4{background:#2d6b3f}.g5{background:#1f8a4c}
-  #cardFront{font-size:17px;font-weight:600;margin:8px 0}
-  #cardBack{display:none;color:#cfe3ff;background:#10131b;padding:12px;border-radius:12px;margin-top:8px}
-  /* topic-by-topic learning */
-  .chapter{margin-top:14px}
-  .chTitle{font-weight:600;font-size:15px}
-  .chWhy{color:var(--muted);font-size:12px;margin:2px 0 4px}
-  .ep{display:flex;gap:10px;width:100%;text-align:left;background:#10131b;
-      border:1px solid #2a2f40;border-radius:12px;padding:10px 12px;margin-top:6px;
-      color:var(--text);cursor:pointer;font-size:14px;align-items:flex-start}
+  /* ── topics ── */
+  .chapter{margin-top:18px}
+  .chTitle{font-weight:650;font-size:15.5px}
+  .chWhy{color:var(--muted);font-size:12.5px;margin:2px 0 4px}
+  .ep{display:flex;gap:10px;width:100%;text-align:left;background:var(--card);
+      border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:8px;
+      color:var(--text);cursor:pointer;font-size:14px;align-items:center}
   .ep:active{border-color:var(--accent)}
-  .epIcon{flex:0 0 auto}
-  .epBody{display:flex;flex-direction:column;min-width:0}
-  .epTitle{font-weight:600;font-size:14px}
-  .epFocus{color:var(--muted);font-size:12px}
-  body.episode .chip.main{display:none}
-  /* doc upload rows */
-  .doc{display:flex;align-items:center;gap:10px;background:#10131b;border:1px solid #2a2f40;
-       border-radius:12px;padding:12px;margin-top:10px}
+  .epIcon{flex:0 0 28px;font-size:18px;text-align:center}
+  .epBody{flex:1;min-width:0;display:flex;flex-direction:column}
+  .epTitle{font-weight:600;font-size:14.5px}
+  .epFocus{color:var(--muted);font-size:12.5px;margin-top:1px}
+  .epGo{flex:0 0 auto;color:var(--muted);font-size:18px}
+  .scorePill{font-size:11.5px;font-weight:700;border-radius:99px;padding:1px 8px;margin-left:6px}
+  .scoreHi{background:#0f3d2b;color:var(--good)}
+  .scoreMid{background:#3d330f;color:var(--warn)}
+  .scoreLo{background:#3d1414;color:var(--bad)}
+  /* ── flashcards ── */
+  .fcCard{background:var(--card);border:1px solid var(--line);border-radius:20px;
+          padding:22px;margin-top:16px;min-height:180px}
+  .fcSkill{color:var(--accent);font-size:12px;font-weight:600;text-transform:uppercase;
+           letter-spacing:.4px}
+  .fcFront{font-size:18px;font-weight:650;margin-top:8px}
+  .fcBack{display:none;color:#cfe3ff;background:var(--input);padding:14px;
+          border-radius:14px;margin-top:14px;font-size:15px;white-space:pre-wrap}
+  .gradeBtns{display:none;gap:8px;margin-top:14px}
+  .gradeBtns button{flex:1;padding:13px 4px;border:none;border-radius:12px;
+                    color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+  .g0{background:#7a2334}.g3{background:#7a6223}.g4{background:#2d6b3f}.g5{background:#1f8a4c}
+  /* ── docs ── */
+  .doc{display:flex;align-items:center;gap:12px;background:var(--card);
+       border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:12px}
+  .doc .ico{font-size:24px}
   .doc .info{flex:1;min-width:0}
-  .doc .title{font-size:14px;font-weight:600}
-  .doc .status{font-size:12px;color:var(--muted)}
-  .doc .status.ok{color:#5dd39e}
-  .doc button{flex:0 0 auto;border:none;border-radius:10px;padding:9px 14px;font-size:13px;
-              cursor:pointer;background:var(--accent);color:#fff}
+  .doc .title{font-size:15px;font-weight:600}
+  .doc .status{font-size:12.5px;color:var(--muted)}
+  .doc .status.ok{color:var(--good)}
+  .doc button{flex:0 0 auto;border:none;border-radius:10px;padding:10px 16px;
+              font-size:13.5px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff}
+  /* ── login ── */
+  #scrLogin .scroll{display:flex;flex-direction:column;justify-content:center}
+  .logo{font-size:40px;font-weight:800;background:var(--grad);
+        -webkit-background-clip:text;background-clip:text;color:transparent;text-align:center}
+  .tagline{text-align:center;color:var(--muted);font-size:15px;margin:6px 0 26px}
+  input[type=text]{width:100%;background:var(--input);border:1px solid var(--line);
+        border-radius:14px;color:var(--text);padding:14px 16px;font-size:16px;outline:none}
+  input[type=text]:focus{border-color:var(--accent)}
+  .hint{color:var(--muted);font-size:13px;margin-top:12px;text-align:center}
+  .err{color:var(--bad);font-size:13.5px;margin-top:10px;text-align:center}
+  /* ── toast & spinner ── */
+  #toast{position:fixed;left:50%;transform:translateX(-50%);
+         bottom:calc(76px + env(safe-area-inset-bottom));background:#262a38;
+         color:var(--text);padding:11px 18px;border-radius:12px;font-size:13.5px;
+         max-width:88%;text-align:center;opacity:0;pointer-events:none;
+         transition:opacity .25s;z-index:50;border:1px solid var(--line)}
+  #toast.show{opacity:1}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid #ffffff44;
+           border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;
+           vertical-align:-3px;margin-right:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .center{text-align:center}
+  .mt{margin-top:14px}
+  /* ── modal (coding round) ── */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;
+         align-items:flex-end;justify-content:center;z-index:40}
+  .modal.open{display:flex}
+  .sheet{background:var(--card);width:100%;max-width:680px;max-height:88dvh;
+         overflow-y:auto;border-radius:20px 20px 0 0;
+         padding:18px 16px max(env(safe-area-inset-bottom),18px)}
+  .sheet h2{font-size:16px;margin-bottom:10px}
+  .sheet pre{white-space:pre-wrap;background:var(--input);padding:12px;
+             border-radius:12px;font-size:13px;margin:10px 0}
+  .sheet textarea{width:100%;min-height:220px;background:var(--input);color:#d7e3ff;
+                  border:1px solid var(--line);border-radius:12px;padding:12px;
+                  font:13px/1.5 ui-monospace,Menlo,monospace}
 </style>
 </head>
-<body>
-<header>
-  <h1>Aura</h1>
-  <span id="who" title="switch user" onclick="switchUser()"></span>
-  <span id="mode">mentor</span>
-  <span id="due"></span>
-  <button id="ioToggle" onclick="toggleIO()">💬 Text</button>
-</header>
+<body class="noauth">
 
-<div id="chat"></div>
-
-<div id="chips">
-  <button class="chip" onclick="openLearn(false)">📚 Topics</button>
-  <button class="chip" id="finishChip" style="display:none" onclick="finishEpisode()">✅ Finish episode</button>
-  <button class="chip main" onclick="cmd('debrief')">📋 Debrief</button>
-  <button class="chip main" onclick="openReview()">🃏 Flashcards</button>
-  <button class="chip main" onclick="startCode()">💻 Coding</button>
-  <button class="chip main" onclick="cmd('behavioral')">🗣 Behavioral</button>
-  <button class="chip main" onclick="cmd('mock')">🎯 Mock</button>
-  <button class="chip main" onclick="cmd('design')">🏗 Design</button>
-  <button class="chip main" onclick="cmd('end')">↩︎ End round</button>
-  <button class="chip main" onclick="openSetup(false)">📄 My docs</button>
-  <button class="chip main" onclick="cmd('quit')">💾 Save & end</button>
-</div>
-
-<div id="composer">
-  <button class="iconbtn" id="speakBtn" title="read replies aloud" onclick="toggleSpeak()">🔊</button>
-  <textarea id="input" rows="1" placeholder="Your answer…"></textarea>
-  <button class="iconbtn" id="micBtn" title="hold to speak" onclick="toggleMic()">🎙</button>
-  <button class="iconbtn" onclick="sendMsg()">➤</button>
-</div>
-
-<!-- login -->
-<div class="modal center" id="loginModal">
-  <div class="sheet">
-    <h2>👋 Welcome to Aura</h2>
-    <p>Enter your name. If you've been here before, you'll get your own prep
-       back — your job description, resume, memory, and flashcards. A new name
-       starts a fresh setup.</p>
-    <input type="text" id="loginName" placeholder="Your name" autocomplete="off"
-           onkeydown="if(event.key==='Enter')doLogin()">
-    <div class="row">
-      <button class="btn" onclick="doLogin()">Continue</button>
+<!-- ════════ LOGIN ════════ -->
+<div class="screen active" id="scrLogin">
+  <div class="scroll">
+    <div class="logo">Aura</div>
+    <div class="tagline">Your personal AI interview coach</div>
+    <div class="card">
+      <h3>What's your name?</h3>
+      <p>If you've used Aura before, the same name brings back your prep —
+         your documents, progress, and flashcards.</p>
+      <div class="mt">
+        <input type="text" id="loginName" placeholder="e.g. Priya" autocomplete="off"
+               onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div class="act"><button class="btn" id="loginBtn" onclick="doLogin()">Get started →</button></div>
+      <div class="err" id="loginErr"></div>
     </div>
-    <p id="loginErr" style="color:#ff8a8a"></p>
+    <div class="hint">Each person gets their own private coach, built around
+       their job description and CV.</div>
   </div>
 </div>
 
-<!-- per-user document setup -->
-<div class="modal center" id="setupModal">
-  <div class="sheet">
-    <h2>📄 Your documents</h2>
-    <p id="setupIntro">Aura preps you for <b>your</b> target role: upload the
-       job description (required) and your CV (recommended). PDF, Markdown, or
-       plain text.</p>
+<!-- ════════ HOME ════════ -->
+<div class="screen" id="scrHome">
+  <div class="scroll" id="homeScroll"></div>
+</div>
+
+<!-- ════════ CHAT (mentor + episodes) ════════ -->
+<div class="screen" id="scrChat">
+  <div class="topbar">
+    <h1 id="chatTitle">Mentor chat<span class="sub" id="chatSub">free-flowing coaching conversation</span></h1>
+    <button class="btn small gray" id="finishEpBtn" style="display:none"
+            onclick="finishEpisode()">✅ Finish &amp; score</button>
+    <button class="iconbtn dim" id="voiceBtn" title="hands-free voice mode"
+            onclick="toggleIO()" style="width:38px;height:38px;font-size:15px">🎙</button>
+  </div>
+  <div id="chatList"></div>
+  <div id="roundBar"><span>🎯 <b id="roundName"></b> round in progress</span>
+    <button onclick="cmd('end')">End round &amp; get feedback</button></div>
+  <div id="composer"><div class="inner">
+    <button class="iconbtn dim" id="speakBtn" title="read replies aloud" onclick="toggleSpeak()">🔊</button>
+    <textarea id="input" rows="1" placeholder="Type your answer…"></textarea>
+    <button class="iconbtn dim" id="micBtn" title="dictate" onclick="toggleMic()">🎙</button>
+    <button class="iconbtn" onclick="sendMsg()">➤</button>
+  </div></div>
+</div>
+
+<!-- ════════ TOPICS ════════ -->
+<div class="screen" id="scrTopics">
+  <div class="topbar"><h1>Study plan<span class="sub">chapters &amp; episodes built from your JD and CV</span></h1></div>
+  <div class="scroll" id="topicsScroll"></div>
+</div>
+
+<!-- ════════ FLASHCARDS ════════ -->
+<div class="screen" id="scrCards">
+  <div class="topbar"><h1>Flashcards<span class="sub">quick daily review of what you've been taught</span></h1></div>
+  <div class="scroll" id="cardsScroll"></div>
+</div>
+
+<!-- ════════ DOCS / PROFILE ════════ -->
+<div class="screen" id="scrDocs">
+  <div class="topbar"><h1>My setup<span class="sub" id="docsSub"></span></h1></div>
+  <div class="scroll">
+    <div class="card" style="margin-top:4px">
+      <h3>📄 Your documents</h3>
+      <p>Aura coaches you for <b>your</b> target role. Upload the job posting
+         you're interviewing for, and your CV so questions match your real
+         experience. PDF, Word-exported PDF, Markdown, or plain text.</p>
+    </div>
     <div class="doc">
+      <span class="ico">📋</span>
       <div class="info">
-        <div class="title">Job description</div>
-        <div class="status" id="jdStatus">not uploaded yet</div>
+        <div class="title">Job description <span style="color:var(--bad)">*</span></div>
+        <div class="status" id="jdStatus">not uploaded yet — required</div>
       </div>
       <button onclick="pickFile('jd')">Upload</button>
     </div>
     <div class="doc">
+      <span class="ico">👤</span>
       <div class="info">
         <div class="title">Resume / CV</div>
-        <div class="status" id="cvStatus">not uploaded yet</div>
+        <div class="status" id="cvStatus">not uploaded yet — recommended</div>
       </div>
       <button onclick="pickFile('resume')">Upload</button>
     </div>
     <input type="file" id="filePick" accept=".pdf,.md,.txt,.markdown" style="display:none">
-    <p id="setupNote"></p>
-    <div class="row">
-      <button class="btn gray" id="setupClose" onclick="closeModal('setupModal')">Close</button>
-      <button class="btn" id="setupStart" onclick="startFromSetup()" disabled>Start session</button>
+    <p class="hint" id="docNote">Uploading a new document restarts your coaching
+       conversations around it. Your learning history is kept.</p>
+    <div class="card">
+      <h3>👤 Account</h3>
+      <p>Signed in as <b id="accName"></b>. Anyone who enters this name gets
+         this setup, so use something others won't guess.</p>
+      <div class="act"><button class="btn gray" onclick="switchUser()">Switch user / log out</button></div>
     </div>
   </div>
 </div>
 
-<!-- topic-by-topic learning -->
-<div class="modal center" id="learnModal">
-  <div class="sheet">
-    <h2>📚 Topic-by-topic prep</h2>
-    <p>Built from <b>your</b> job description and CV. Pick an episode — a short
-       focused session that teaches and tests that one topic. Your scores,
-       skill memory, and flashcards carry over.</p>
-    <div id="learnList"></div>
-    <div class="row">
-      <button class="btn gray" onclick="rebuildPlan()">↻ Rebuild plan</button>
-      <button class="btn" onclick="closeModal('learnModal')">Close</button>
-    </div>
-  </div>
-</div>
+<!-- tab bar -->
+<nav id="tabbar">
+  <button class="tab active" id="tabHome"   onclick="show('scrHome')"><span class="ico">🏠</span>Home</button>
+  <button class="tab" id="tabChat"   onclick="goChat()"><span class="ico">💬</span>Mentor</button>
+  <button class="tab" id="tabTopics" onclick="show('scrTopics')"><span class="ico">📚</span>Topics</button>
+  <button class="tab" id="tabCards"  onclick="show('scrCards')"><span class="ico">🃏</span>Cards<span class="badge" id="dueBadge" style="display:none"></span></button>
+  <button class="tab" id="tabDocs"   onclick="show('scrDocs')"><span class="ico">⚙️</span>Setup</button>
+</nav>
+
+<div id="toast"></div>
 
 <!-- coding round sheet -->
 <div class="modal" id="codeModal">
@@ -199,149 +298,424 @@
     <h2 id="codeTitle">Coding round</h2>
     <pre id="codeStatement"></pre>
     <textarea id="codeArea" spellcheck="false"></textarea>
-    <div class="row">
+    <div class="rowflex">
       <button class="btn gray" onclick="closeModal('codeModal')">Cancel</button>
-      <button class="btn" onclick="submitCode()">Run & review</button>
-    </div>
-  </div>
-</div>
-
-<!-- flashcard review sheet -->
-<div class="modal" id="reviewModal">
-  <div class="sheet">
-    <h2>Flashcard review <span id="cardsLeft" style="color:var(--muted);font-weight:400"></span></h2>
-    <div id="cardSkill" style="color:var(--muted);font-size:12px"></div>
-    <div id="cardFront"></div>
-    <div id="cardBack"></div>
-    <div class="row" id="showRow">
-      <button class="btn" onclick="showAnswer()">Show answer</button>
-      <button class="btn gray" onclick="closeModal('reviewModal')">Done</button>
-    </div>
-    <div class="row" id="gradeRow" style="display:none">
-      <button class="btn grade g0" onclick="grade(0)">Blank</button>
-      <button class="btn grade g3" onclick="grade(3)">Hard</button>
-      <button class="btn grade g4" onclick="grade(4)">Good</button>
-      <button class="btn grade g5" onclick="grade(5)">Easy</button>
+      <button class="btn" onclick="submitCode()">Run &amp; review</button>
     </div>
   </div>
 </div>
 
 <script>
-const chat = document.getElementById('chat');
-const input = document.getElementById('input');
-let speakOn = false, rec = null, busy = false, voiceMode = false;
+/* ═══════════ state ═══════════ */
 let user = localStorage.getItem('aura_user') || '';
 let displayName = localStorage.getItem('aura_name') || '';
-let hasJd = false, hasCv = false, sessionLive = false, inEpisode = false;
+let hasJd = false, hasCv = false, sessionLive = false;
+let chatMode = 'mentor';            // 'mentor' | 'episode'
+let roundMode = 'mentor';           // mentor | behavioral | mock | design
+let curEpisode = null;              // {ci, ei, title}
+let mentorMsgs = [], episodeMsgs = [];
+let stat = {due:0, plan:null};
+let busy = false, speakOn = false, rec = null, voiceMode = false;
+let planCache = null;
 
-function add(role, text){
-  if(!text) return;
-  const d = document.createElement('div');
-  d.className = 'msg ' + role;
-  d.textContent = text;
-  chat.appendChild(d);
-  chat.scrollTop = chat.scrollHeight;
-  if(role === 'ai'){
-    if(voiceMode) speak(text, autoListen);   // hands-free loop: speak, then listen
-    else if(speakOn) speak(text);
-  }
-}
-function typing(on){
-  let t = document.getElementById('t');
-  if(on && !t){ t = document.createElement('div'); t.id='t'; t.className='typing';
-    t.textContent='Aura is thinking…'; chat.appendChild(t); chat.scrollTop = chat.scrollHeight; }
-  if(!on && t) t.remove();
-}
+const $ = id => document.getElementById(id);
+function esc(s){ const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function toast(msg, ms){ const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), ms || 2600); }
+
 async function api(path, body){
-  busy = true; typing(true);
   try{
-    const payload = Object.assign({user}, body||{});
     const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
-                                 body: JSON.stringify(payload)});
+                                 body: JSON.stringify(Object.assign({user}, body||{}))});
     return await r.json();
-  } catch(e){ return {error: 'connection lost — is the server running?'}; }
-  finally{ busy = false; typing(false); }
+  } catch(e){ return {error: 'connection lost — check your internet and try again'}; }
 }
-function handle(res){
-  if(res.error){
-    if(res.need_login){ switchUser(); return; }
-    if(res.need_setup){ add('sys','📄 ' + res.error); openSetup(true); return; }
-    add('sys', '⚠ ' + res.error); return;
-  }
-  add('ai', res.reply);
-  (res.extra||[]).forEach(x => add('sys', x));
-  if(res.mode) document.getElementById('mode').textContent = res.mode;
+
+/* ═══════════ navigation ═══════════ */
+const SCREENS = ['scrLogin','scrHome','scrChat','scrTopics','scrCards','scrDocs'];
+const TABOF = {scrHome:'tabHome', scrChat:'tabChat', scrTopics:'tabTopics',
+               scrCards:'tabCards', scrDocs:'tabDocs'};
+function show(id){
+  SCREENS.forEach(s => $(s).classList.toggle('active', s === id));
+  Object.values(TABOF).forEach(t => $(t).classList.remove('active'));
+  if(TABOF[id]) $(TABOF[id]).classList.add('active');
+  if(id === 'scrHome')   renderHome();
+  if(id === 'scrTopics') openTopics();
+  if(id === 'scrCards')  openCards();
+  if(id === 'scrDocs')   renderDocs();
 }
-async function sendMsg(){
-  const text = input.value.trim();
-  if(!text || busy || (!sessionLive && !inEpisode)) return;
-  input.value = ''; autosize();
-  add('me', text);
-  if(inEpisode){
-    const res = await api('/api/learn/message', {text});
-    if(res.error) add('sys','⚠ ' + res.error); else add('ai', res.reply);
-    return;
-  }
-  handle(await api('/api/message', {text}));
-}
-async function cmd(c){
-  if(busy || !sessionLive) return;
-  add('sys', '— ' + c + ' —');
-  const res = await api('/api/command', {cmd:c});
-  if(c === 'quit' && !res.error) sessionLive = false;
-  handle(res);
-}
-/* ── login & per-user setup ─────────────────────────────────────────── */
-function switchUser(){
-  localStorage.removeItem('aura_user'); localStorage.removeItem('aura_name');
-  location.reload();
-}
+
+/* ═══════════ login ═══════════ */
 async function doLogin(){
-  const name = document.getElementById('loginName').value.trim();
-  if(!name) return;
+  const name = $('loginName').value.trim();
+  if(!name){ $('loginErr').textContent = 'Please enter your name.'; return; }
+  $('loginBtn').disabled = true; $('loginBtn').textContent = 'One moment…';
   const res = await api('/api/login', {name});
-  if(res.error){ document.getElementById('loginErr').textContent = res.error; return; }
+  $('loginBtn').disabled = false; $('loginBtn').textContent = 'Get started →';
+  if(res.error){ $('loginErr').textContent = res.error; return; }
   user = res.user; displayName = res.display_name;
   hasJd = res.has_jd; hasCv = res.has_resume;
   localStorage.setItem('aura_user', user);
   localStorage.setItem('aura_name', displayName);
-  closeModal('loginModal');
-  document.getElementById('who').textContent = '👤 ' + displayName;
-  if(res.existing && hasJd){
-    add('sys','Welcome back, ' + displayName + ' — picking up your prep.');
-    startSession();
+  document.body.classList.remove('noauth');
+  await refreshStatus();
+  show('scrHome');
+  if(!hasJd){ toast('Welcome! First step: upload your job description.', 3500); }
+}
+function switchUser(){
+  if(!confirm('Log out? Your progress is saved under your name.')) return;
+  localStorage.removeItem('aura_user'); localStorage.removeItem('aura_name');
+  location.reload();
+}
+
+/* ═══════════ status & home ═══════════ */
+async function refreshStatus(){
+  const res = await api('/api/status', {});
+  if(res.error) return;
+  hasJd = res.has_jd; hasCv = res.has_resume;
+  stat = res; displayName = res.display_name || displayName;
+  const b = $('dueBadge');
+  b.style.display = res.due > 0 ? '' : 'none';
+  b.textContent = res.due;
+}
+function renderHome(){
+  refreshStatus().then(paintHome);
+  paintHome();
+}
+function paintHome(){
+  const el = $('homeScroll');
+  const plan = stat.plan;
+  const pct = plan && plan.total ? Math.round(plan.done / plan.total * 100) : 0;
+  let h = `
+    <div class="hero">
+      <h2>Hi ${esc(displayName)} 👋</h2>
+      <p>${hasJd ? 'Let’s get you ready for this interview. Pick how you want to practice today.'
+                 : 'Two quick steps and your personal coach is ready.'}</p>
+    </div>`;
+  if(!hasJd){
+    h += `
+    <div class="card">
+      <h3>🚀 Get set up</h3>
+      <div class="step ${hasJd?'done':''}"><div class="n">${hasJd?'✓':'1'}</div>
+        <div><div class="t">Upload the job description</div>
+        <div class="d">The posting for the role you're interviewing for (PDF or text).</div></div></div>
+      <div class="step ${hasCv?'done':''}"><div class="n">${hasCv?'✓':'2'}</div>
+        <div><div class="t">Upload your CV <span style="color:var(--muted);font-weight:400">(optional)</span></div>
+        <div class="d">So questions match your real projects and experience.</div></div></div>
+      <div class="act"><button class="btn" onclick="show('scrDocs')">Upload documents</button></div>
+    </div>`;
   } else {
-    add('sys', (res.existing ? 'Welcome back, ' : 'Hi ') + displayName +
-               '! Upload your job description (and CV) to begin.');
-    openSetup(true);
+    h += `
+    <div class="card tappable" onclick="goChat()">
+      <h3>💬 Talk to your mentor</h3>
+      <p>A natural conversation: your coach asks questions, teaches what you're
+         missing, and checks it stuck — like a senior engineer prepping you 1-on-1.</p>
+      <div class="act"><button class="btn">${sessionLive ? 'Continue conversation' : 'Start talking'}</button></div>
+    </div>
+    <div class="card tappable" onclick="show('scrTopics')">
+      <h3>📚 Study topic by topic</h3>
+      <p>${plan ? 'Short focused lessons — pick a topic, get taught and tested on just that.'
+                : 'Aura turns your JD and CV into a personal syllabus of short, focused lessons.'}</p>
+      ${plan ? `<div class="bar"><i style="width:${pct}%"></i></div>
+                <p style="margin-top:6px">${plan.done} of ${plan.total} topics completed · ${pct}%</p>` : ''}
+      <div class="act"><button class="btn">${plan ? 'Continue studying' : 'See my study plan'}</button></div>
+    </div>
+    <div class="card ${stat.due>0?'tappable':''}" ${stat.due>0?'onclick="show(\'scrCards\')"':''}>
+      <h3>🃏 Flashcards ${stat.due>0 ? `<span class="pill live">${stat.due} due</span>` : ''}</h3>
+      <p>${stat.due > 0 ? 'A few minutes of review locks in what you learned. Spaced repetition does the scheduling.'
+                        : 'Nothing due right now — cards appear automatically as Aura teaches you.'}</p>
+      ${stat.due>0 ? '<div class="act"><button class="btn">Review now</button></div>' : ''}
+    </div>
+    <div class="card">
+      <h3>🎯 Practice rounds</h3>
+      <p>Realistic interview simulations inside your mentor chat. Finish a round
+         to get honest, detailed feedback.</p>
+      <div class="rowflex">
+        <button class="btn gray" onclick="startRound('mock')">🎤 Mock interview</button>
+        <button class="btn gray" onclick="startRound('behavioral')">🗣 Behavioral</button>
+        <button class="btn gray" onclick="startRound('design')">🏗 System design</button>
+        <button class="btn gray" onclick="startCodeFromHome()">💻 Coding</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>📋 How ready am I?</h3>
+      <p>Get an honest readiness report: strengths, gaps, a study plan, and a
+         score you can track over time.</p>
+      <div class="act"><button class="btn gray" onclick="startRound('debrief')">Get my readiness report</button></div>
+    </div>`;
+  }
+  el.innerHTML = h;
+}
+
+/* ═══════════ chat (mentor + episode share this screen) ═══════════ */
+function msgsNow(){ return chatMode === 'episode' ? episodeMsgs : mentorMsgs; }
+function renderChat(){
+  const list = $('chatList'); list.innerHTML = '';
+  msgsNow().forEach(m => {
+    const d = document.createElement('div');
+    d.className = 'msg ' + m.role; d.textContent = m.text; list.appendChild(d);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+function addMsg(role, text){
+  if(!text) return;
+  msgsNow().push({role, text});
+  const list = $('chatList');
+  const d = document.createElement('div');
+  d.className = 'msg ' + role; d.textContent = text;
+  list.appendChild(d); list.scrollTop = list.scrollHeight;
+  if(role === 'ai'){
+    if(voiceMode) speak(text, autoListen);
+    else if(speakOn) speak(text);
   }
 }
-function refreshSetupUI(){
-  const jd = document.getElementById('jdStatus'), cv = document.getElementById('cvStatus');
-  jd.textContent = hasJd ? 'uploaded ✓' : 'not uploaded yet';
-  jd.className = 'status' + (hasJd ? ' ok' : '');
-  cv.textContent = hasCv ? 'uploaded ✓' : 'not uploaded yet (optional)';
-  cv.className = 'status' + (hasCv ? ' ok' : '');
-  document.getElementById('setupStart').disabled = !hasJd;
-  document.getElementById('setupClose').style.display = sessionLive ? '' : 'none';
+function typing(on){
+  let t = $('t');
+  if(on && !t){ t = document.createElement('div'); t.id = 't'; t.className = 'typing';
+    t.textContent = 'Aura is thinking…'; $('chatList').appendChild(t);
+    $('chatList').scrollTop = $('chatList').scrollHeight; }
+  if(!on && t) t.remove();
 }
-function openSetup(forced){
-  document.getElementById('setupNote').textContent = forced ? '' :
-    'Uploading a new document restarts the conversation around it (your memory and flashcards are kept).';
-  refreshSetupUI();
-  document.getElementById('setupModal').classList.add('open');
+function setChatHeader(){
+  if(chatMode === 'episode'){
+    $('chatTitle').innerHTML = '📚 ' + esc(curEpisode.title) +
+      '<span class="sub">focused lesson — finish any time to get your score</span>';
+    $('finishEpBtn').style.display = '';
+  } else {
+    $('chatTitle').innerHTML = 'Mentor chat<span class="sub">free-flowing coaching conversation</span>';
+    $('finishEpBtn').style.display = 'none';
+  }
+  const rb = $('roundBar');
+  if(chatMode === 'mentor' && roundMode !== 'mentor'){
+    $('roundName').textContent = roundMode === 'mock' ? 'Mock interview'
+      : roundMode === 'design' ? 'System design' : 'Behavioral';
+    rb.classList.add('show');
+  } else rb.classList.remove('show');
+}
+async function goChat(){
+  chatMode = 'mentor';
+  show('scrChat'); setChatHeader(); renderChat();
+  if(!hasJd){
+    addOnce('Upload your job description first, then your mentor knows what to prep you for.');
+    show('scrDocs'); toast('Upload your job description to start.'); return;
+  }
+  if(!sessionLive) await startMentor();
+}
+function addOnce(text){
+  const m = msgsNow();
+  if(!m.length || m[m.length-1].text !== text) addMsg('sys', text);
+}
+async function startMentor(){
+  if(busy) return; busy = true; typing(true);
+  addMsg('sys', 'Connecting you with your mentor — a few seconds…');
+  const res = await api('/api/start', {});
+  busy = false; typing(false);
+  if(res.error){
+    if(res.need_setup){ show('scrDocs'); toast(res.error); return; }
+    addMsg('sys', '⚠ ' + res.error); return;
+  }
+  sessionLive = true;
+  if(res.history){
+    mentorMsgs = res.history.slice(); renderChat();
+  } else {
+    addMsg('ai', res.reply);
+  }
+  if(res.due > 0) toast('🃏 ' + res.due + ' flashcards due — see the Cards tab.');
+}
+async function sendMsg(){
+  const text = $('input').value.trim();
+  if(!text || busy) return;
+  if(chatMode === 'mentor' && !sessionLive){ await startMentor(); if(!sessionLive) return; }
+  $('input').value = ''; autosize();
+  addMsg('me', text);
+  busy = true; typing(true);
+  const res = await api(chatMode === 'episode' ? '/api/learn/message' : '/api/message', {text});
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  addMsg('ai', res.reply);
+  (res.extra || []).forEach(x => addMsg('sys', x));
+  if(res.mode){ roundMode = res.mode; setChatHeader(); }
+}
+async function cmd(c){
+  if(busy) return;
+  busy = true; typing(true);
+  const res = await api('/api/command', {cmd:c});
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  addMsg('ai', res.reply);
+  (res.extra || []).forEach(x => addMsg('sys', x));
+  if(res.mode){ roundMode = res.mode; setChatHeader(); }
+  if(c === 'quit'){ sessionLive = false; roundMode = 'mentor'; setChatHeader(); }
+}
+async function startRound(r){
+  await goChat();
+  if(!sessionLive) return;
+  if(r === 'debrief'){ addMsg('sys', '— preparing your readiness report… —'); cmd('debrief'); return; }
+  if(roundMode === r){ toast('This round is already running.'); return; }
+  addMsg('sys', '— starting ' + (r === 'mock' ? 'a mock interview' :
+        r === 'design' ? 'a system design round' : 'a behavioral round') + ' —');
+  cmd(r);
+}
+
+/* ═══════════ topics ═══════════ */
+async function openTopics(){
+  const el = $('topicsScroll');
+  if(!hasJd){
+    el.innerHTML = `<div class="card"><h3>📚 Your study plan</h3>
+      <p>Once your job description is uploaded, Aura builds a personal syllabus:
+         the role's key technical areas, a deep-dive into your own resume,
+         stories from your current job, and behavioral prep.</p>
+      <div class="act"><button class="btn" onclick="show('scrDocs')">Upload documents first</button></div></div>`;
+    return;
+  }
+  el.innerHTML = '<p class="hint mt">Loading your plan…</p>';
+  const res = await api('/api/learn/plan', {});
+  if(res.error){ el.innerHTML = '<div class="card"><p>⚠ ' + esc(res.error) + '</p></div>'; return; }
+  if(!res.plan){
+    el.innerHTML = `<div class="card"><h3>📚 Build your study plan</h3>
+      <p>Aura reads your job description and CV and creates chapters &amp;
+         episodes personal to you — technical topics, your resume's projects,
+         your current job's stories, and behavioral prep. Each episode is a
+         short lesson that teaches and tests one thing.</p>
+      <div class="act"><button class="btn" id="buildBtn" onclick="buildPlan(false)">✨ Build my plan (takes ~1 min)</button></div></div>`;
+    return;
+  }
+  planCache = res.plan; renderPlan();
+}
+async function buildPlan(regen){
+  const btn = $('buildBtn'); if(btn){ btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Building your plan — about a minute…'; }
+  const res = await api('/api/learn/plan', regen ? {regenerate:true} : {build:true});
+  if(res.error){ toast('⚠ ' + res.error, 4000); openTopics(); return; }
+  planCache = res.plan; renderPlan();
+  toast('Your study plan is ready 🎉');
+}
+function renderPlan(){
+  const el = $('topicsScroll');
+  const eps = planCache.chapters.flatMap(c => c.episodes);
+  const done = eps.filter(e => e.status === 'done').length;
+  const pct = eps.length ? Math.round(done / eps.length * 100) : 0;
+  let h = `<div class="card" style="margin-top:4px">
+      <h3>Your progress</h3>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <p style="margin-top:6px">${done} of ${eps.length} episodes completed · ${pct}%</p>
+      <p style="font-size:12px">Tap any episode for a short focused lesson on
+         just that topic. You'll get a score out of 100 when you finish it.</p></div>`;
+  planCache.chapters.forEach((ch, ci) => {
+    h += `<div class="chapter"><div class="chTitle">${ci+1}. ${esc(ch.title)}</div>
+          <div class="chWhy">${esc(ch.why)}</div>`;
+    ch.episodes.forEach((ep, ei) => {
+      const icon = ep.status === 'done' ? '✅' : ep.status === 'in_progress' ? '⏸' : '▷';
+      let score = '';
+      if(ep.score != null){
+        const cls = ep.score >= 70 ? 'scoreHi' : ep.score >= 40 ? 'scoreMid' : 'scoreLo';
+        score = `<span class="scorePill ${cls}">${ep.score}/100</span>`;
+      }
+      h += `<button class="ep" onclick="startEpisode(${ci},${ei})">
+              <span class="epIcon">${icon}</span>
+              <span class="epBody"><span class="epTitle">${esc(ep.title)}${score}</span>
+              <span class="epFocus">${esc(ep.focus)}</span></span>
+              <span class="epGo">›</span></button>`;
+    });
+    h += `</div>`;
+  });
+  h += `<div class="card"><p>Uploaded a new JD or CV? Rebuild the plan to match.
+        Completed scores reset.</p>
+        <div class="act"><button class="btn gray" id="buildBtn" onclick="if(confirm('Rebuild your study plan from your current documents? Episode scores reset.'))buildPlan(true)">↻ Rebuild plan</button></div></div>`;
+  el.innerHTML = h;
+}
+async function startEpisode(ci, ei){
+  if(busy) return;
+  const ep = planCache.chapters[ci].episodes[ei];
+  chatMode = 'episode';
+  curEpisode = {ci, ei, title: ep.title};
+  episodeMsgs = [];
+  show('scrChat'); setChatHeader(); renderChat();
+  addMsg('sys', '📚 Lesson: ' + ep.title + ' — answer naturally, Aura teaches as you go. Tap “Finish & score” when you want your result.');
+  busy = true; typing(true);
+  const res = await api('/api/learn/start', {chapter:ci, episode:ei});
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  addMsg('ai', res.reply);
+}
+async function finishEpisode(){
+  if(busy || chatMode !== 'episode') return;
+  if(!confirm('Finish this lesson and get your score?')) return;
+  busy = true; typing(true);
+  addMsg('sys', '— scoring this lesson… —');
+  const res = await api('/api/learn/finish', {});
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  if(res.mastery != null) addMsg('sys', '📊 Your mastery of this topic: ' + res.mastery + '/100');
+  if(res.verdict) addMsg('ai', res.verdict);
+  if(res.cards_added) addMsg('sys', '🃏 ' + res.cards_added + ' flashcard(s) saved for review.');
+  curEpisode = null; chatMode = 'mentor';
+  setTimeout(() => { show('scrTopics'); toast('Lesson saved ✓ Pick the next topic when ready.'); }, 1800);
+}
+
+/* ═══════════ flashcards ═══════════ */
+let fcCur = null;
+async function openCards(){
+  const el = $('cardsScroll');
+  el.innerHTML = '<p class="hint mt">Loading…</p>';
+  const res = await api('/api/review/next', {});
+  if(res.error){ el.innerHTML = '<div class="card"><p>⚠ ' + esc(res.error) + '</p></div>'; return; }
+  if(res.done){
+    el.innerHTML = `<div class="card center" style="margin-top:20px"><h3 style="justify-content:center">🎉 All caught up</h3>
+      <p>No cards due right now. Aura creates cards automatically from every
+         lesson — check back tomorrow.</p></div>`;
+    refreshStatus(); return;
+  }
+  fcCur = res; paintCard();
+}
+function paintCard(){
+  const el = $('cardsScroll');
+  el.innerHTML = `
+    <p class="hint" style="text-align:left;margin-top:4px">${fcCur.remaining} card(s) due — rate yourself honestly; it decides when you see each card again.</p>
+    <div class="fcCard">
+      <div class="fcSkill">${esc(fcCur.skill)}</div>
+      <div class="fcFront">${esc(fcCur.front)}</div>
+      <div class="fcBack" id="fcBack">${esc(fcCur.back)}</div>
+      <div class="act" id="revealRow"><button class="btn" onclick="revealCard()">Show answer</button></div>
+      <div class="gradeBtns" id="gradeRow">
+        <button class="g0" onclick="gradeCard(0)">😶 No idea</button>
+        <button class="g3" onclick="gradeCard(3)">😅 Hard</button>
+        <button class="g4" onclick="gradeCard(4)">🙂 Got it</button>
+        <button class="g5" onclick="gradeCard(5)">😎 Easy</button>
+      </div>
+    </div>`;
+}
+function revealCard(){
+  $('fcBack').style.display = 'block';
+  $('revealRow').style.display = 'none';
+  $('gradeRow').style.display = 'flex';
+}
+async function gradeCard(q){
+  await api('/api/review/grade', {quality:q});
+  openCards();
+}
+
+/* ═══════════ docs ═══════════ */
+function renderDocs(){
+  $('accName').textContent = displayName;
+  $('docsSub').textContent = 'your documents & account';
+  paintDocStatus();
+}
+function paintDocStatus(){
+  const jd = $('jdStatus'), cv = $('cvStatus');
+  jd.textContent = hasJd ? 'uploaded ✓ — replace any time' : 'not uploaded yet — required';
+  jd.className = 'status' + (hasJd ? ' ok' : '');
+  cv.textContent = hasCv ? 'uploaded ✓ — replace any time' : 'not uploaded yet — recommended';
+  cv.className = 'status' + (hasCv ? ' ok' : '');
 }
 let pickKind = null;
-function pickFile(kind){
-  pickKind = kind;
-  document.getElementById('filePick').click();
-}
-document.getElementById('filePick').addEventListener('change', async e => {
+function pickFile(kind){ pickKind = kind; $('filePick').click(); }
+$('filePick').addEventListener('change', async e => {
   const f = e.target.files[0];
   e.target.value = '';
   if(!f || !pickKind) return;
-  if(f.size > 15*1024*1024){ document.getElementById('setupNote').textContent = '⚠ 15 MB max'; return; }
-  document.getElementById('setupNote').textContent = 'Uploading ' + f.name + '…';
+  if(f.size > 15*1024*1024){ toast('⚠ File too large — 15 MB max.'); return; }
+  toast('Uploading ' + f.name + '…', 6000);
   const data_b64 = await new Promise((ok, err) => {
     const r = new FileReader();
     r.onload = () => ok(r.result.split(',')[1]);
@@ -349,147 +723,47 @@ document.getElementById('filePick').addEventListener('change', async e => {
     r.readAsDataURL(f);
   });
   const res = await api('/api/setup/upload', {kind: pickKind, filename: f.name, data_b64});
-  if(res.error){ document.getElementById('setupNote').textContent = '⚠ ' + res.error; return; }
+  if(res.error){ toast('⚠ ' + res.error, 5000); return; }
   hasJd = res.has_jd; hasCv = res.has_resume;
-  sessionLive = false;          // server dropped the old session
-  document.getElementById('setupNote').textContent = '✓ ' + res.note;
-  refreshSetupUI();
+  sessionLive = false; mentorMsgs = []; planCache = null;
+  paintDocStatus();
+  toast('✓ ' + res.note + (pickKind === 'jd' ? ' Your coach is ready.' : ''), 4000);
+  if(hasJd && pickKind === 'jd'){
+    setTimeout(() => { show('scrHome'); }, 1200);
+  }
 });
-function startFromSetup(){
-  closeModal('setupModal');
-  chat.innerHTML = '';
-  startSession();
+
+/* ═══════════ coding round ═══════════ */
+async function startCodeFromHome(){
+  await goChat();
+  if(!sessionLive) return;
+  startCode();
 }
-async function startSession(){
-  add('sys','Connecting to your mentor…');
-  const res = await api('/api/start', {});
-  if(res.error){ handle(res); return; }
-  sessionLive = true;
-  if(res.history){                 // reconnect: replay the conversation
-    chat.innerHTML = '';
-    res.history.forEach(m => {
-      const d = document.createElement('div');
-      d.className = 'msg ' + m.role; d.textContent = m.text; chat.appendChild(d);
-    });
-    chat.scrollTop = chat.scrollHeight;
-    if(res.mode) document.getElementById('mode').textContent = res.mode;
-  } else {
-    handle(res);
-  }
-  if(res.due > 0){
-    document.getElementById('due').textContent = '🃏 ' + res.due + ' cards due';
-    add('sys','You have ' + res.due + ' flashcards due — a quick review before we start locks in last session. Tap 🃏 Flashcards.');
-  }
-}
-/* ── topic-by-topic learning ────────────────────────────────────────── */
-function esc(s){ const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-async function openLearn(regen){
-  if(busy) return;
-  add('sys', regen ? '— rebuilding your topic plan from your JD/CV… —'
-                   : '— loading your topic plan… —');
-  const res = await api('/api/learn/plan', regen ? {regenerate:true} : {});
-  if(res.error){ handle(res); return; }
-  renderPlan(res.plan);
-  document.getElementById('learnModal').classList.add('open');
-}
-function rebuildPlan(){
-  if(!confirm('Rebuild the plan from your current JD/CV? Episode progress marks reset.')) return;
-  closeModal('learnModal');
-  openLearn(true);
-}
-function renderPlan(plan){
-  const el = document.getElementById('learnList'); el.innerHTML = '';
-  plan.chapters.forEach((ch, ci) => {
-    const c = document.createElement('div'); c.className = 'chapter';
-    c.innerHTML = '<div class="chTitle">' + (ci+1) + '. ' + esc(ch.title) + '</div>' +
-                  '<div class="chWhy">' + esc(ch.why) + '</div>';
-    ch.episodes.forEach((ep, ei) => {
-      const b = document.createElement('button'); b.className = 'ep';
-      const icon = ep.status === 'done' ? '✅' : ep.status === 'in_progress' ? '▶️' : '⭕';
-      const score = ep.score != null ? ' · ' + ep.score + '/100' : '';
-      b.innerHTML = '<span class="epIcon">' + icon + '</span>' +
-                    '<span class="epBody"><span class="epTitle">' + esc(ep.title) + score + '</span>' +
-                    '<span class="epFocus">' + esc(ep.focus) + '</span></span>';
-      b.onclick = () => startEpisode(ci, ei, ep.title);
-      c.appendChild(b);
-    });
-    el.appendChild(c);
-  });
-}
-async function startEpisode(ci, ei, title){
-  if(busy) return;
-  closeModal('learnModal');
-  chat.innerHTML = '';
-  add('sys','— 📚 Episode: ' + title + ' —');
-  const res = await api('/api/learn/start', {chapter:ci, episode:ei});
-  if(res.error){ handle(res); return; }
-  inEpisode = true;
-  document.body.classList.add('episode');
-  document.getElementById('finishChip').style.display = '';
-  document.getElementById('mode').textContent = 'episode';
-  add('ai', res.reply);
-}
-async function finishEpisode(){
-  if(busy || !inEpisode) return;
-  add('sys','— wrapping up this episode… —');
-  const res = await api('/api/learn/finish', {});
-  if(res.error){ add('sys','⚠ ' + res.error); return; }
-  inEpisode = false;
-  document.body.classList.remove('episode');
-  document.getElementById('finishChip').style.display = 'none';
-  document.getElementById('mode').textContent = 'mentor';
-  if(res.mastery != null) add('sys','📊 Topic mastery: ' + res.mastery + '/100');
-  if(res.verdict) add('ai', res.verdict);
-  if(res.cards_added) add('sys','🃏 ' + res.cards_added + ' new flashcard(s) added.');
-  add('sys','Pick another topic with 📚 Topics, or just type to continue your mentor chat.');
-}
-/* coding round */
 async function startCode(){
-  if(busy || !sessionLive) return;
-  add('sys','— setting up a coding round… —');
+  if(busy) return;
+  addMsg('sys', '— preparing a coding exercise for you… —');
+  busy = true; typing(true);
   const res = await api('/api/code/start', {});
-  if(res.error){ add('sys','⚠ '+res.error); return; }
-  document.getElementById('codeTitle').textContent = '💻 ' + (res.title || 'Coding round');
-  document.getElementById('codeStatement').textContent = res.statement;
-  document.getElementById('codeArea').value = res.stub || '';
-  document.getElementById('codeModal').classList.add('open');
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  $('codeTitle').textContent = '💻 ' + (res.title || 'Coding round');
+  $('codeStatement').textContent = res.statement;
+  $('codeArea').value = res.stub || '';
+  $('codeModal').classList.add('open');
 }
 async function submitCode(){
-  const code = document.getElementById('codeArea').value;
+  const code = $('codeArea').value;
   closeModal('codeModal');
-  add('sys','— running your solution… —');
-  handle(await api('/api/code/submit', {code}));
+  addMsg('sys', '— running your solution… —');
+  busy = true; typing(true);
+  const res = await api('/api/code/submit', {code});
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  addMsg('ai', res.reply);
 }
-/* flashcards */
-async function openReview(){
-  if(!sessionLive) return;
-  const res = await api('/api/review/next', {});
-  if(res.done){ add('sys','🃏 No cards due — come back after your next lesson.'); refreshDue(); return; }
-  showCard(res);
-  document.getElementById('reviewModal').classList.add('open');
-}
-function showCard(res){
-  document.getElementById('cardsLeft').textContent = '(' + res.remaining + ' due)';
-  document.getElementById('cardSkill').textContent = res.skill;
-  document.getElementById('cardFront').textContent = res.front;
-  const back = document.getElementById('cardBack');
-  back.textContent = res.back; back.style.display = 'none';
-  document.getElementById('showRow').style.display = 'flex';
-  document.getElementById('gradeRow').style.display = 'none';
-}
-function showAnswer(){
-  document.getElementById('cardBack').style.display = 'block';
-  document.getElementById('showRow').style.display = 'none';
-  document.getElementById('gradeRow').style.display = 'flex';
-}
-async function grade(q){
-  await api('/api/review/grade', {quality:q});
-  const res = await api('/api/review/next', {});
-  if(res.done){ closeModal('reviewModal'); add('sys','🃏 All caught up — nice work.'); refreshDue(); return; }
-  showCard(res);
-}
-function closeModal(id){ document.getElementById(id).classList.remove('open'); }
-/* browser voice — works on mobile, no python deps */
+function closeModal(id){ $(id).classList.remove('open'); }
+
+/* ═══════════ voice (browser-native) ═══════════ */
 function speak(text, onend){
   try{
     const u = new SpeechSynthesisUtterance(text); u.rate = 1.05;
@@ -497,34 +771,27 @@ function speak(text, onend){
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   }catch(e){ if(onend) onend(); }
 }
-/* one-tap voice/text mode switch (header) */
 function toggleIO(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!voiceMode && !SR){
-    add('sys','⚠ voice input not supported in this browser — try Chrome/Safari.');
-    return;
-  }
+  if(!voiceMode && !SR){ toast('⚠ Voice input needs Chrome or Safari.'); return; }
   voiceMode = !voiceMode;
-  const b = document.getElementById('ioToggle');
-  b.textContent = voiceMode ? '🎙 Voice' : '💬 Text';
-  b.classList.toggle('voice', voiceMode);
+  $('voiceBtn').classList.toggle('on', voiceMode);
   if(voiceMode){
-    speakOn = true; document.getElementById('speakBtn').classList.add('on');
-    add('sys','Voice mode ON — replies are spoken, then the mic opens for your answer. Pause to send; tap the toggle to go back to text.');
+    speakOn = true; $('speakBtn').classList.add('on');
+    toast('🎙 Hands-free mode: replies are spoken, then the mic opens. Pause to send.', 4000);
     autoListen();
   } else {
-    speakOn = false; document.getElementById('speakBtn').classList.remove('on');
+    speakOn = false; $('speakBtn').classList.remove('on');
     speechSynthesis.cancel();
     if(rec) rec.stop();
-    add('sys','Text mode ON.');
+    toast('Voice mode off.');
   }
 }
-/* hands-free capture: listen once, auto-send on pause */
 function autoListen(){
   if(!voiceMode || busy || rec) return;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR) return;
-  const btn = document.getElementById('micBtn');
+  const btn = $('micBtn');
   rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false;
   let finalText = '';
   rec.onresult = e => {
@@ -533,63 +800,58 @@ function autoListen(){
       if(e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
       else interim += e.results[i][0].transcript;
     }
-    input.value = (finalText + interim).trim(); autosize();
+    $('input').value = (finalText + interim).trim(); autosize();
   };
   rec.onend = () => {
     rec = null; btn.classList.remove('listening');
-    const text = input.value.trim();
-    if(voiceMode && text){ sendMsg(); }
+    if(voiceMode && $('input').value.trim()) sendMsg();
   };
   rec.onerror = () => { rec = null; btn.classList.remove('listening'); };
   btn.classList.add('listening'); rec.start();
 }
 function toggleSpeak(){
   speakOn = !speakOn;
-  document.getElementById('speakBtn').classList.toggle('on', speakOn);
+  $('speakBtn').classList.toggle('on', speakOn);
   if(!speakOn) speechSynthesis.cancel();
 }
 function toggleMic(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ add('sys','⚠ voice input not supported in this browser — try Chrome/Safari.'); return; }
-  const btn = document.getElementById('micBtn');
+  if(!SR){ toast('⚠ Voice input needs Chrome or Safari.'); return; }
+  const btn = $('micBtn');
   if(rec){ rec.stop(); return; }
   rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
-  let finalText = input.value ? input.value + ' ' : '';
+  let finalText = $('input').value ? $('input').value + ' ' : '';
   rec.onresult = e => {
     let interim = '';
     for(let i = e.resultIndex; i < e.results.length; i++){
       if(e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
       else interim += e.results[i][0].transcript;
     }
-    input.value = (finalText + interim).trim(); autosize();
+    $('input').value = (finalText + interim).trim(); autosize();
   };
   rec.onend = () => { rec = null; btn.classList.remove('listening'); };
   rec.onerror = () => { rec = null; btn.classList.remove('listening'); };
   btn.classList.add('listening'); rec.start();
 }
-/* composer */
-function autosize(){ input.style.height='auto'; input.style.height = Math.min(input.scrollHeight,120)+'px'; }
+
+/* ═══════════ composer ═══════════ */
+const input = $('input');
+function autosize(){ input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
 input.addEventListener('input', autosize);
 input.addEventListener('keydown', e => {
   if(e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700){ e.preventDefault(); sendMsg(); }
 });
-async function refreshDue(){
-  // due count comes back on /api/start; keep simple between sessions
-}
-/* boot */
+
+/* ═══════════ boot ═══════════ */
 (async () => {
-  if(!user){
-    document.getElementById('loginModal').classList.add('open');
-    document.getElementById('loginName').focus();
-    return;
-  }
-  // re-login silently to refresh state for the saved name
+  if(!user){ show('scrLogin'); $('loginName').focus(); return; }
   const res = await api('/api/login', {name: displayName || user});
-  if(res.error){ switchUser(); return; }
+  if(res.error){ localStorage.clear(); show('scrLogin'); return; }
   user = res.user; displayName = res.display_name;
   hasJd = res.has_jd; hasCv = res.has_resume;
-  document.getElementById('who').textContent = '👤 ' + displayName;
-  if(hasJd) startSession(); else openSetup(true);
+  document.body.classList.remove('noauth');
+  await refreshStatus();
+  show('scrHome');
 })();
 </script>
 </body>

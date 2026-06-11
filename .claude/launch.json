@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "aura-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-c", "from aura.web import serve; serve(8765)"],
+      "port": 8765
+    }
+  ]
+}
