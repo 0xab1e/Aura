@@ -269,6 +269,9 @@
 <div class="screen" id="scrChat">
   <div class="topbar">
     <h1 id="chatTitle">Mentor chat<span class="sub" id="chatSub">free-flowing coaching conversation</span></h1>
+    <button class="iconbtn dim" id="refreshBtn" title="refresh chat"
+            aria-label="refresh chat" onclick="refreshChat()"
+            style="width:38px;height:38px;font-size:16px">↻</button>
     <button class="btn small gray" id="epModeBtn" style="display:none"
             onclick="toggleEpMode()">🎓 Teach me</button>
     <button class="btn small gray" id="finishEpBtn" style="display:none"
@@ -669,6 +672,38 @@ async function startMentor(){
     addMsg('ai', res.reply);
   }
   if(res.due > 0) toast('🃏 ' + res.due + ' flashcards due — see the Cards tab.');
+}
+async function refreshChat(){
+  typing(false);
+  busy = false;
+  if(rec && rec.state === 'recording') rec.stop();
+  await refreshStatus();
+  if(chatMode === 'episode'){
+    const ep = curEpisode || (stat.episode
+      ? {ci: stat.episode.chapter, ei: stat.episode.episode, title: stat.episode.title}
+      : null);
+    if(!ep){ toast('No live lesson to refresh.'); return; }
+    curEpisode = ep;
+    const res = await api('/api/learn/start', {chapter: ep.ci, episode: ep.ei});
+    if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+    epMode = res.mode || epMode || 'quiz';
+    if(res.history) episodeMsgs = res.history.slice();
+    else if(res.reply) episodeMsgs = [{role:'ai', text:res.reply}];
+    setChatHeader(); renderChat();
+    toast('Chat refreshed.');
+    return;
+  }
+  const res = await api('/api/start', {});
+  if(res.error){
+    if(res.need_setup){ show('scrDocs'); toast(res.error); return; }
+    addMsg('sys', '⚠ ' + res.error); return;
+  }
+  sessionLive = true;
+  if(res.mode){ roundMode = res.mode; }
+  if(res.history) mentorMsgs = res.history.slice();
+  else if(res.reply) mentorMsgs = [{role:'ai', text:res.reply}];
+  setChatHeader(); renderChat();
+  toast('Chat refreshed.');
 }
 async function sendMsg(){
   const text = $('input').value.trim();
