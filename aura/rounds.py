@@ -5,8 +5,6 @@ are unaffected — 'end' returns to normal mentoring."""
 
 from pathlib import Path
 
-STORIES_FILE = Path(".aura") / "stories.md"
-
 MODE_PROMPTS = {
     "behavioral": """\
 [MODE SWITCH — behavioral round. Until told the round is over, act as a
@@ -71,9 +69,9 @@ def extract_stories(reply: str) -> str:
     return reply.split("```stories", 1)[1].split("```", 1)[0].strip()
 
 
-def save_stories(stories: str) -> None:
+def save_stories(stories: str, stories_file: Path) -> None:
     if not stories:
         return
-    STORIES_FILE.parent.mkdir(exist_ok=True)
-    with STORIES_FILE.open("a") as f:
+    stories_file.parent.mkdir(parents=True, exist_ok=True)
+    with stories_file.open("a") as f:
         f.write("\n" + stories + "\n")

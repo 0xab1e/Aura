@@ -1,13 +1,10 @@
-"""Readiness reports + score trend across sessions."""
+"""Readiness reports + score trend across sessions, per user."""
 
 import csv
 from datetime import datetime
 from pathlib import Path
 
-from .backend import codex_turn, extract_json
-
-REPORTS_DIR = Path(".aura") / "reports"
-SCORES_FILE = Path(".aura") / "scores.csv"
+from .backend import CodexThread, extract_json
 
 REPORT_PROMPT = """\
 [SYSTEM TASK — generate a readiness report for the candidate. Output JSON only:
@@ -22,20 +19,21 @@ REPORT_PROMPT = """\
 Output ONLY the JSON.]"""
 
 
-def generate_report() -> str | None:
+def generate_report(thread: CodexThread, reports_dir: Path,
+                    scores_file: Path) -> str | None:
     """Ask the live session for a structured report; write it to disk.
     Returns a short printable summary, or None on failure."""
     try:
-        reply = codex_turn(REPORT_PROMPT, first=False)
+        reply = thread.turn(REPORT_PROMPT)
     except RuntimeError:
         return None
     data = extract_json(reply)
     if not isinstance(data, dict) or "overall_score" not in data:
         return None
 
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    path = REPORTS_DIR / f"report_{stamp}.md"
+    path = reports_dir / f"report_{stamp}.md"
 
     lines = [f"# Readiness report — {stamp}",
              f"\n**Overall readiness: {data['overall_score']}/100**",
@@ -51,8 +49,8 @@ def generate_report() -> str | None:
     lines += [f"- {s}" for s in data.get("study_plan", [])]
     path.write_text("\n".join(lines) + "\n")
 
-    _append_score(stamp, data["overall_score"])
-    trend = score_trend()
+    _append_score(stamp, data["overall_score"], scores_file)
+    trend = score_trend(scores_file)
     summary = (f"Readiness: {data['overall_score']}/100. "
                f"Report saved to {path}.")
     if trend:
@@ -60,19 +58,20 @@ def generate_report() -> str | None:
     return summary
 
 
-def _append_score(stamp: str, score) -> None:
-    new = not SCORES_FILE.exists()
-    with SCORES_FILE.open("a", newline="") as f:
+def _append_score(stamp: str, score, scores_file: Path) -> None:
+    new = not scores_file.exists()
+    scores_file.parent.mkdir(parents=True, exist_ok=True)
+    with scores_file.open("a", newline="") as f:
         w = csv.writer(f)
         if new:
             w.writerow(["timestamp", "overall_score"])
         w.writerow([stamp, score])
 
 
-def score_trend() -> str:
-    if not SCORES_FILE.exists():
+def score_trend(scores_file: Path) -> str:
+    if not scores_file.exists():
         return ""
-    with SCORES_FILE.open() as f:
+    with scores_file.open() as f:
         rows = list(csv.DictReader(f))
     if len(rows) < 2:
         return ""

@@ -22,7 +22,8 @@ import textwrap
 from aura import flashcards
 from aura.backend import check_codex
 from aura.coding import run_coding_round
-from aura.session import JD_FILE, AuraSession
+from aura.session import AuraSession, SetupError
+from aura.users import UserStore
 
 WIDTH = 88
 COMMANDS = ("quit", "debrief", "code", "voice", "text",
@@ -84,7 +85,8 @@ def get_input(voice: bool = False) -> str:
     return "\n".join(lines).strip()
 
 
-def review_cards(deck: list[dict]) -> None:
+def review_cards(s: AuraSession) -> None:
+    deck = s.deck
     due = flashcards.due_cards(deck)
     if not due:
         print(wrap("No flashcards due — come back after your next lesson."))
@@ -100,7 +102,8 @@ def review_cards(deck: list[dict]) -> None:
         g = input("grade 0/3/4/5 (q to stop): ").strip().lower()
         if g == "q":
             break
-        flashcards.grade_card(deck, card, int(g) if g in "0123455" and g else 3)
+        flashcards.grade_card(deck, card, int(g) if g in "0123455" and g else 3,
+                              s.user.deck_file)
     print(wrap("Review saved."))
 
 
@@ -108,9 +111,13 @@ def review_cards(deck: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aura – AI interview mentor")
-    parser.add_argument("jd", nargs="?", default=JD_FILE, help="job description file")
+    parser.add_argument("jd", nargs="?", default=None,
+                        help="job description file (default: your uploaded JD, "
+                             "then job_description.md)")
+    parser.add_argument("--user", default="default",
+                        help="login name — each name has its own JD, resume, and memory")
     parser.add_argument("--voice", action="store_true", help="speak answers / hear questions")
-    parser.add_argument("--resume", help="resume file (md/txt/pdf); defaults to resume.md if present")
+    parser.add_argument("--resume", help="resume file (md/txt/pdf); defaults to your uploaded resume, then resume.md")
     parser.add_argument("--fresh", action="store_true", help="ignore stored memory this session")
     parser.add_argument("--web", action="store_true", help="serve the mobile-friendly web UI")
     parser.add_argument("--port", type=int, default=8765, help="web UI port")
@@ -120,7 +127,7 @@ def main() -> None:
 
     if args.web:
         from aura.web import serve
-        serve(args.jd, args.resume, args.fresh, args.port)
+        serve(args.port)
         return
 
     voice = False
@@ -130,7 +137,12 @@ def main() -> None:
         if not voice:
             print(hint)
 
-    s = AuraSession(args.jd, args.resume, args.fresh)
+    try:
+        store = UserStore(args.user)
+        s = AuraSession(store, args.jd, args.resume, args.fresh)
+    except (ValueError, SetupError) as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
 
     print("═" * WIDTH)
     print("  AURA — your interview mentor  (backend: Codex)")
@@ -156,8 +168,8 @@ def main() -> None:
             summary = s.end()
             if summary:
                 print("\n" + wrap(summary))
-            print("\n" + wrap("Transcript: .aura_session.md — see you next session. "
-                              "You've got this."))
+            print("\n" + wrap(f"Transcript: {s.user.session_log} — see you next "
+                              "session. You've got this."))
             break
 
         if user == "voice":
@@ -172,11 +184,11 @@ def main() -> None:
             continue
 
         if user == "review":
-            review_cards(s.deck)
+            review_cards(s)
             continue
 
         if user == "code":
-            review = run_coding_round()
+            review = run_coding_round(s.thread, s.user.workspace_dir)
             if review:
                 s.ctx.add("", review)
                 say(f"Aura ▸ {review}", voice)

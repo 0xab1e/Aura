@@ -3,16 +3,16 @@ their editor via the CLI, or in the web UI's code box), we run it and feed
 code + output back into the conversation for review.
 
 Split into setup / review halves so both the CLI (file + 'done') and the
-web UI (textarea submit) can drive the same round."""
+web UI (textarea submit) can drive the same round. Problems live in the
+user's own workspace directory."""
 
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
-from .backend import codex_turn, extract_json
+from .backend import CodexThread, extract_json
 
-WORKSPACE = Path(".aura") / "workspace"
 RUN_TIMEOUT = 30  # seconds
 
 PROBLEM_PROMPT = """\
@@ -47,14 +47,16 @@ wrong or missing (correctness, edge cases, complexity, style), what an interview
 would push on. If it failed, teach the fix. Then continue the session naturally.]"""
 
 
-def setup_round() -> tuple[dict, Path] | None:
+def setup_round(thread: CodexThread,
+                workspace: Path) -> tuple[dict, Path] | None:
     """Ask the session for a problem; write stub + statement to a workspace dir."""
-    reply = codex_turn(PROBLEM_PROMPT, first=False)
+    reply = thread.turn(PROBLEM_PROMPT)
     data = extract_json(reply)
     if not isinstance(data, dict) or "statement" not in data:
         return None
-    n = len(list(WORKSPACE.glob("problem_*"))) + 1
-    pdir = WORKSPACE / f"problem_{n}_{data.get('title', 'challenge')}"
+    workspace.mkdir(parents=True, exist_ok=True)
+    n = len(list(workspace.glob("problem_*"))) + 1
+    pdir = workspace / f"problem_{n}_{data.get('title', 'challenge')}"
     pdir.mkdir(parents=True, exist_ok=True)
     stub = data.get("stub", "# your solution here\n")
     (pdir / "solution.py").write_text(f'"""\n{data["statement"]}\n"""\n\n{stub}\n')
@@ -63,7 +65,8 @@ def setup_round() -> tuple[dict, Path] | None:
     return data, pdir
 
 
-def review_round(data: dict, pdir: Path, code: str | None = None) -> str:
+def review_round(data: dict, pdir: Path, thread: CodexThread,
+                 code: str | None = None) -> str:
     """Run the solution (+ agent tests) and get the in-conversation review.
     If `code` is given (web UI), it's written to solution.py first."""
     solution = pdir / "solution.py"
@@ -71,16 +74,15 @@ def review_round(data: dict, pdir: Path, code: str | None = None) -> str:
         solution.write_text(code)
     code_text = solution.read_text()
     output = _run_solution(pdir, data.get("test_code", ""))
-    review = codex_turn(
+    review = thread.turn(
         REVIEW_PROMPT.format(title=data.get("title", ""),
-                             code=code_text, output=output[:4000]),
-        first=False)
+                             code=code_text, output=output[:4000]))
     return review
 
 
-def run_coding_round() -> str | None:
+def run_coding_round(thread: CodexThread, workspace: Path) -> str | None:
     """CLI flow: solve in your own editor, type 'done'. Returns review or None."""
-    setup = setup_round()
+    setup = setup_round(thread, workspace)
     if setup is None:
         print("(couldn't set up a coding problem — continuing the conversation)")
         return None
@@ -97,7 +99,7 @@ def run_coding_round() -> str | None:
     if cmd == "skip":
         return None
 
-    review = review_round(data, pdir)
+    review = review_round(data, pdir, thread)
     return review
 
 

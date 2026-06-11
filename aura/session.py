@@ -1,16 +1,20 @@
 """AuraSession — the single conversation engine shared by the CLI and the
 web UI. All features (memory, compaction, rounds, flashcard harvesting,
-reports) live here so every frontend behaves identically."""
+reports) live here so every frontend behaves identically.
 
-import sys
+Each session belongs to one UserStore (login name) and owns its own
+CodexThread, so any number of candidates can prep concurrently, each with
+their own JD, resume, and history."""
+
 from pathlib import Path
 
 from . import flashcards, memory, reports, rounds
-from .backend import codex_turn, extract_json
+from .backend import CodexThread
+from .backend import extract_json
 from .context import ContextTracker, compact_session
+from .users import UserStore
 
 JD_FILE = "job_description.md"
-SESSION_LOG = Path(".aura_session.md")
 
 MENTOR_BRIEF = """\
 You are Aura, an elite interview mentor — a senior engineer who has run hundreds of
@@ -73,49 +77,63 @@ DEBRIEF_MSG = ("debrief — give me your current honest read: strong areas, "
                "open gaps, what to study, how ready I am.")
 
 
-def load_jd(path: str) -> str:
-    p = Path(path)
-    if not p.exists():
-        print(f"ERROR: {path} not found. Put your job description there and rerun.")
-        sys.exit(1)
-    text = p.read_text().strip()
-    if not text or "Paste your target job description" in text:
-        print("ERROR: job_description.md still contains placeholder text — paste your real JD.")
-        sys.exit(1)
-    return text
+class SetupError(Exception):
+    """The user's setup is incomplete (e.g. no JD yet) — recoverable."""
 
 
-def load_resume(path: str | None) -> str:
-    if path is None:
-        default = Path("resume.md")
-        if not default.exists():
-            return ""
-        path = str(default)
-    p = Path(path)
-    if not p.exists():
-        print(f"WARNING: resume file {path} not found — continuing without it.")
-        return ""
-    if p.suffix.lower() == ".pdf":
-        try:
-            from pypdf import PdfReader
-            return "\n".join(page.extract_text() or "" for page in PdfReader(p).pages)
-        except ImportError:
-            print("WARNING: PDF resume needs `pip install pypdf` — continuing without it.")
-            return ""
-    return p.read_text().strip()
+def load_jd(user: UserStore, jd_path: str | None) -> str:
+    """The user's uploaded JD wins; an explicit path or the repo-root
+    job_description.md are CLI fallbacks."""
+    candidates = ([Path(jd_path)] if jd_path else
+                  [user.jd_file, Path(JD_FILE)])
+    for p in candidates:
+        if not p.exists():
+            continue
+        text = p.read_text().strip()
+        if text and "Paste your target job description" not in text:
+            return text
+        if text:
+            raise SetupError(f"{p} still contains placeholder text — "
+                             "replace it with the real job description.")
+    raise SetupError("No job description yet — upload one (PDF or text) "
+                     "to start your prep.")
+
+
+def load_resume(user: UserStore, resume_path: str | None) -> str:
+    candidates = ([Path(resume_path)] if resume_path else
+                  [user.resume_file, Path("resume.md")])
+    for p in candidates:
+        if not p.exists():
+            if resume_path:
+                print(f"WARNING: resume file {p} not found — continuing without it.")
+            continue
+        if p.suffix.lower() == ".pdf":
+            try:
+                from pypdf import PdfReader
+                return "\n".join(page.extract_text() or ""
+                                 for page in PdfReader(p).pages)
+            except ImportError:
+                print("WARNING: PDF resume needs `pip install pypdf` — "
+                      "continuing without it.")
+                return ""
+        return p.read_text().strip()
+    return ""
 
 
 class AuraSession:
     """One continuous mentoring conversation with mode switches, memory,
     flashcard harvesting, and automatic context compaction."""
 
-    def __init__(self, jd_path: str = JD_FILE, resume_path: str | None = None,
-                 fresh: bool = False):
-        self.jd = load_jd(jd_path)
-        self.resume = load_resume(resume_path)
+    def __init__(self, user: UserStore, jd_path: str | None = None,
+                 resume_path: str | None = None, fresh: bool = False):
+        self.user = user
+        user.create()
+        self.thread = CodexThread()
+        self.jd = load_jd(user, jd_path)
+        self.resume = load_resume(user, resume_path)
         self.profile = ({"skills": {}, "sessions": []} if fresh
-                        else memory.load_profile())
-        self.deck = flashcards.load_deck()
+                        else memory.load_profile(user.profile_file))
+        self.deck = flashcards.load_deck(user.deck_file)
         self.mode = "mentor"       # mentor | behavioral | mock | design
         self.ctx = ContextTracker()
         memory_section = memory.profile_brief(self.profile)
@@ -124,7 +142,8 @@ class AuraSession:
             resume_section=RESUME_SECTION.format(resume=self.resume) if self.resume else "",
             memory_section=memory_section,
         )
-        SESSION_LOG.write_text("# Aura session transcript\n")
+        self.user.session_log.write_text(
+            f"# Aura session transcript — {user.display_name}\n")
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -135,7 +154,7 @@ class AuraSession:
                 "you left off and start by re-verifying something you taught "
                 "last time" if self._returning else ""),
             **self._sections)
-        reply = codex_turn(brief, first=True)
+        reply = self.thread.turn(brief, first=True)
         self.ctx.add(brief, reply)
         self._log("Aura", reply)
         return reply
@@ -143,7 +162,7 @@ class AuraSession:
     def send(self, text: str) -> str:
         """One normal conversation turn (also used for debrief text)."""
         self._log("You", text)
-        reply = codex_turn(text, first=False)
+        reply = self.thread.turn(text)
         self.ctx.add(text, reply)
         self._log("Aura", reply)
         return reply
@@ -156,7 +175,7 @@ class AuraSession:
         try:
             self.save_progress()
             base = MENTOR_BRIEF.format(jd=self.jd, memory_hint="", **self._sections)
-            cont = compact_session(base)
+            cont = compact_session(base, self.thread)
             self.ctx.reset(seed_chars=len(base) + len(cont))
             if cont:
                 self._log("Aura", cont)
@@ -166,31 +185,34 @@ class AuraSession:
 
     def save_progress(self) -> int:
         """Persist profile + harvest flashcards. Returns # new cards."""
-        memory.update_profile_from_session(self.profile)
+        memory.update_profile_from_session(self.profile, self.thread,
+                                           self.user.profile_file)
         try:
-            reply = codex_turn(flashcards.HARVEST_PROMPT, first=False)
+            reply = self.thread.turn(flashcards.HARVEST_PROMPT)
         except RuntimeError:
             return 0
         cards = extract_json(reply)
         if isinstance(cards, list):
-            return flashcards.add_cards(self.deck, cards)
+            return flashcards.add_cards(self.deck, cards, self.user.deck_file)
         return 0
 
     def debrief(self) -> tuple[str, str | None]:
         reply = self.send(DEBRIEF_MSG)
-        summary = reports.generate_report()
+        summary = reports.generate_report(self.thread, self.user.reports_dir,
+                                          self.user.scores_file)
         self.save_progress()
         return reply, summary
 
     def end(self) -> str | None:
         self.save_progress()
-        return reports.generate_report()
+        return reports.generate_report(self.thread, self.user.reports_dir,
+                                       self.user.scores_file)
 
     # ── rounds ───────────────────────────────────────────────────────────
 
     def switch_mode(self, mode: str) -> str:
         """Enter behavioral/mock/design — or back to mentor via end_round()."""
-        reply = codex_turn(rounds.MODE_PROMPTS[mode], first=False)
+        reply = self.thread.turn(rounds.MODE_PROMPTS[mode])
         self.ctx.add(rounds.MODE_PROMPTS[mode], reply)
         self.mode = mode
         self._log("Aura", f"[{mode} round]\n{reply}")
@@ -201,15 +223,16 @@ class AuraSession:
         if mode == "mentor":
             return "(no round in progress)"
         prompt = rounds.END_PROMPTS[mode]
-        reply = codex_turn(prompt, first=False)
+        reply = self.thread.turn(prompt)
         self.ctx.add(prompt, reply)
         if mode == "behavioral":
-            rounds.save_stories(rounds.extract_stories(reply))
+            rounds.save_stories(rounds.extract_stories(reply),
+                                self.user.stories_file)
         self._log("Aura", f"[end {mode} round]\n{reply}")
         return reply
 
     # ── misc ─────────────────────────────────────────────────────────────
 
     def _log(self, role: str, text: str) -> None:
-        with SESSION_LOG.open("a") as f:
+        with self.user.session_log.open("a") as f:
             f.write(f"\n**{role}:**\n\n{text}\n")

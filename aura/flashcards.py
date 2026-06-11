@@ -1,12 +1,11 @@
 """Flashcards with SM-2 spaced repetition. Fully local — no LLM needed to
 review, so you can drill cards even offline. Cards are harvested from the
-live session whenever the profile is saved (debrief / quit / compaction)."""
+live session whenever the profile is saved (debrief / quit / compaction).
+Each user has their own deck file."""
 
 import json
 from datetime import date, timedelta
 from pathlib import Path
-
-DECK_FILE = Path(".aura") / "flashcards.json"
 
 HARVEST_PROMPT = """\
 [SYSTEM TASK — flashcard harvest, the candidate will not see this.
@@ -18,21 +17,21 @@ Only concepts actually taught/corrected this session, max 8 cards, [] if none.
 Output ONLY the JSON array.]"""
 
 
-def load_deck() -> list[dict]:
-    if DECK_FILE.exists():
+def load_deck(deck_file: Path) -> list[dict]:
+    if deck_file.exists():
         try:
-            return json.loads(DECK_FILE.read_text())
+            return json.loads(deck_file.read_text())
         except json.JSONDecodeError:
             pass
     return []
 
 
-def save_deck(deck: list[dict]) -> None:
-    DECK_FILE.parent.mkdir(exist_ok=True)
-    DECK_FILE.write_text(json.dumps(deck, indent=2))
+def save_deck(deck: list[dict], deck_file: Path) -> None:
+    deck_file.parent.mkdir(parents=True, exist_ok=True)
+    deck_file.write_text(json.dumps(deck, indent=2))
 
 
-def add_cards(deck: list[dict], new_cards: list[dict]) -> int:
+def add_cards(deck: list[dict], new_cards: list[dict], deck_file: Path) -> int:
     """Add harvested cards, skipping near-duplicates. Returns count added."""
     fronts = {c["front"].strip().lower() for c in deck}
     added = 0
@@ -51,7 +50,7 @@ def add_cards(deck: list[dict], new_cards: list[dict]) -> int:
         })
         added += 1
     if added:
-        save_deck(deck)
+        save_deck(deck, deck_file)
     return added
 
 
@@ -60,7 +59,8 @@ def due_cards(deck: list[dict]) -> list[dict]:
     return [c for c in deck if c["due"] <= today]
 
 
-def grade_card(deck: list[dict], card: dict, quality: int) -> None:
+def grade_card(deck: list[dict], card: dict, quality: int,
+               deck_file: Path) -> None:
     """SM-2: quality 0-5 (0=blank, 3=hard recall, 5=perfect)."""
     quality = max(0, min(5, quality))
     if quality >= 3:
@@ -76,4 +76,4 @@ def grade_card(deck: list[dict], card: dict, quality: int) -> None:
         card["interval"] = 1
     card["ef"] = max(1.3, card["ef"] + 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
     card["due"] = (date.today() + timedelta(days=card["interval"])).isoformat()
-    save_deck(deck)
+    save_deck(deck, deck_file)

@@ -17,6 +17,9 @@
   header{padding:max(env(safe-area-inset-top),10px) 16px 10px;background:var(--panel);
          display:flex;align-items:center;gap:10px;border-bottom:1px solid #262a38}
   header h1{font-size:17px;font-weight:600}
+  #who{font-size:12px;color:var(--muted);background:#262a38;padding:2px 10px;
+       border-radius:99px;cursor:pointer;max-width:110px;overflow:hidden;
+       text-overflow:ellipsis;white-space:nowrap}
   #mode{font-size:12px;color:var(--muted);background:#262a38;padding:2px 10px;border-radius:99px}
   #due{font-size:12px;color:#ffd166;margin-left:auto}
   #ioToggle{border:none;border-radius:99px;padding:6px 14px;font-size:13px;cursor:pointer;
@@ -50,27 +53,44 @@
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;
          align-items:flex-end;justify-content:center;z-index:10}
   .modal.open{display:flex}
+  .modal.center{align-items:center;padding:18px}
   .sheet{background:var(--panel);width:100%;max-width:680px;max-height:88dvh;overflow-y:auto;
          border-radius:20px 20px 0 0;padding:18px 16px max(env(safe-area-inset-bottom),18px)}
+  .modal.center .sheet{border-radius:20px}
   .sheet h2{font-size:16px;margin-bottom:10px}
+  .sheet p{color:var(--muted);font-size:13px;margin:6px 0}
   .sheet pre{white-space:pre-wrap;background:#10131b;padding:12px;border-radius:12px;
              font-size:13px;margin:10px 0}
   .sheet textarea{width:100%;min-height:220px;background:#10131b;color:#d7e3ff;
                   border:1px solid #2a2f40;border-radius:12px;padding:12px;
                   font:13px/1.5 ui-monospace,Menlo,monospace}
+  .sheet input[type=text]{width:100%;background:#10131b;border:1px solid #2a2f40;
+                  border-radius:12px;color:var(--text);padding:12px 14px;font-size:16px;
+                  outline:none;margin:8px 0}
   .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
   .btn{flex:1;min-width:90px;padding:12px;border:none;border-radius:12px;font-size:15px;
        background:var(--accent);color:#fff;cursor:pointer}
   .btn.gray{background:#262a38}
+  .btn:disabled{opacity:.45;cursor:default}
   .grade{flex:1;min-width:64px;padding:12px 6px;font-size:13px}
   .g0{background:#7a2334}.g3{background:#7a6223}.g4{background:#2d6b3f}.g5{background:#1f8a4c}
   #cardFront{font-size:17px;font-weight:600;margin:8px 0}
   #cardBack{display:none;color:#cfe3ff;background:#10131b;padding:12px;border-radius:12px;margin-top:8px}
+  /* doc upload rows */
+  .doc{display:flex;align-items:center;gap:10px;background:#10131b;border:1px solid #2a2f40;
+       border-radius:12px;padding:12px;margin-top:10px}
+  .doc .info{flex:1;min-width:0}
+  .doc .title{font-size:14px;font-weight:600}
+  .doc .status{font-size:12px;color:var(--muted)}
+  .doc .status.ok{color:#5dd39e}
+  .doc button{flex:0 0 auto;border:none;border-radius:10px;padding:9px 14px;font-size:13px;
+              cursor:pointer;background:var(--accent);color:#fff}
 </style>
 </head>
 <body>
 <header>
   <h1>Aura</h1>
+  <span id="who" title="switch user" onclick="switchUser()"></span>
   <span id="mode">mentor</span>
   <span id="due"></span>
   <button id="ioToggle" onclick="toggleIO()">💬 Text</button>
@@ -86,6 +106,7 @@
   <button class="chip" onclick="cmd('mock')">🎯 Mock</button>
   <button class="chip" onclick="cmd('design')">🏗 Design</button>
   <button class="chip" onclick="cmd('end')">↩︎ End round</button>
+  <button class="chip" onclick="openSetup(false)">📄 My docs</button>
   <button class="chip" onclick="cmd('quit')">💾 Save & end</button>
 </div>
 
@@ -94,6 +115,52 @@
   <textarea id="input" rows="1" placeholder="Your answer…"></textarea>
   <button class="iconbtn" id="micBtn" title="hold to speak" onclick="toggleMic()">🎙</button>
   <button class="iconbtn" onclick="sendMsg()">➤</button>
+</div>
+
+<!-- login -->
+<div class="modal center" id="loginModal">
+  <div class="sheet">
+    <h2>👋 Welcome to Aura</h2>
+    <p>Enter your name. If you've been here before, you'll get your own prep
+       back — your job description, resume, memory, and flashcards. A new name
+       starts a fresh setup.</p>
+    <input type="text" id="loginName" placeholder="Your name" autocomplete="off"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="row">
+      <button class="btn" onclick="doLogin()">Continue</button>
+    </div>
+    <p id="loginErr" style="color:#ff8a8a"></p>
+  </div>
+</div>
+
+<!-- per-user document setup -->
+<div class="modal center" id="setupModal">
+  <div class="sheet">
+    <h2>📄 Your documents</h2>
+    <p id="setupIntro">Aura preps you for <b>your</b> target role: upload the
+       job description (required) and your CV (recommended). PDF, Markdown, or
+       plain text.</p>
+    <div class="doc">
+      <div class="info">
+        <div class="title">Job description</div>
+        <div class="status" id="jdStatus">not uploaded yet</div>
+      </div>
+      <button onclick="pickFile('jd')">Upload</button>
+    </div>
+    <div class="doc">
+      <div class="info">
+        <div class="title">Resume / CV</div>
+        <div class="status" id="cvStatus">not uploaded yet</div>
+      </div>
+      <button onclick="pickFile('resume')">Upload</button>
+    </div>
+    <input type="file" id="filePick" accept=".pdf,.md,.txt,.markdown" style="display:none">
+    <p id="setupNote"></p>
+    <div class="row">
+      <button class="btn gray" id="setupClose" onclick="closeModal('setupModal')">Close</button>
+      <button class="btn" id="setupStart" onclick="startFromSetup()" disabled>Start session</button>
+    </div>
+  </div>
 </div>
 
 <!-- coding round sheet -->
@@ -133,6 +200,9 @@
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 let speakOn = false, rec = null, busy = false, voiceMode = false;
+let user = localStorage.getItem('aura_user') || '';
+let displayName = localStorage.getItem('aura_name') || '';
+let hasJd = false, hasCv = false, sessionLive = false;
 
 function add(role, text){
   if(!text) return;
@@ -155,33 +225,130 @@ function typing(on){
 async function api(path, body){
   busy = true; typing(true);
   try{
+    const payload = Object.assign({user}, body||{});
     const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
-                                 body: JSON.stringify(body||{})});
+                                 body: JSON.stringify(payload)});
     return await r.json();
   } catch(e){ return {error: 'connection lost — is the server running?'}; }
   finally{ busy = false; typing(false); }
 }
 function handle(res){
-  if(res.error){ add('sys', '⚠ ' + res.error); return; }
+  if(res.error){
+    if(res.need_login){ switchUser(); return; }
+    if(res.need_setup){ add('sys','📄 ' + res.error); openSetup(true); return; }
+    add('sys', '⚠ ' + res.error); return;
+  }
   add('ai', res.reply);
   (res.extra||[]).forEach(x => add('sys', x));
   if(res.mode) document.getElementById('mode').textContent = res.mode;
 }
 async function sendMsg(){
   const text = input.value.trim();
-  if(!text || busy) return;
+  if(!text || busy || !sessionLive) return;
   input.value = ''; autosize();
   add('me', text);
   handle(await api('/api/message', {text}));
 }
 async function cmd(c){
-  if(busy) return;
+  if(busy || !sessionLive) return;
   add('sys', '— ' + c + ' —');
-  handle(await api('/api/command', {cmd:c}));
+  const res = await api('/api/command', {cmd:c});
+  if(c === 'quit' && !res.error) sessionLive = false;
+  handle(res);
+}
+/* ── login & per-user setup ─────────────────────────────────────────── */
+function switchUser(){
+  localStorage.removeItem('aura_user'); localStorage.removeItem('aura_name');
+  location.reload();
+}
+async function doLogin(){
+  const name = document.getElementById('loginName').value.trim();
+  if(!name) return;
+  const res = await api('/api/login', {name});
+  if(res.error){ document.getElementById('loginErr').textContent = res.error; return; }
+  user = res.user; displayName = res.display_name;
+  hasJd = res.has_jd; hasCv = res.has_resume;
+  localStorage.setItem('aura_user', user);
+  localStorage.setItem('aura_name', displayName);
+  closeModal('loginModal');
+  document.getElementById('who').textContent = '👤 ' + displayName;
+  if(res.existing && hasJd){
+    add('sys','Welcome back, ' + displayName + ' — picking up your prep.');
+    startSession();
+  } else {
+    add('sys', (res.existing ? 'Welcome back, ' : 'Hi ') + displayName +
+               '! Upload your job description (and CV) to begin.');
+    openSetup(true);
+  }
+}
+function refreshSetupUI(){
+  const jd = document.getElementById('jdStatus'), cv = document.getElementById('cvStatus');
+  jd.textContent = hasJd ? 'uploaded ✓' : 'not uploaded yet';
+  jd.className = 'status' + (hasJd ? ' ok' : '');
+  cv.textContent = hasCv ? 'uploaded ✓' : 'not uploaded yet (optional)';
+  cv.className = 'status' + (hasCv ? ' ok' : '');
+  document.getElementById('setupStart').disabled = !hasJd;
+  document.getElementById('setupClose').style.display = sessionLive ? '' : 'none';
+}
+function openSetup(forced){
+  document.getElementById('setupNote').textContent = forced ? '' :
+    'Uploading a new document restarts the conversation around it (your memory and flashcards are kept).';
+  refreshSetupUI();
+  document.getElementById('setupModal').classList.add('open');
+}
+let pickKind = null;
+function pickFile(kind){
+  pickKind = kind;
+  document.getElementById('filePick').click();
+}
+document.getElementById('filePick').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if(!f || !pickKind) return;
+  if(f.size > 15*1024*1024){ document.getElementById('setupNote').textContent = '⚠ 15 MB max'; return; }
+  document.getElementById('setupNote').textContent = 'Uploading ' + f.name + '…';
+  const data_b64 = await new Promise((ok, err) => {
+    const r = new FileReader();
+    r.onload = () => ok(r.result.split(',')[1]);
+    r.onerror = err;
+    r.readAsDataURL(f);
+  });
+  const res = await api('/api/setup/upload', {kind: pickKind, filename: f.name, data_b64});
+  if(res.error){ document.getElementById('setupNote').textContent = '⚠ ' + res.error; return; }
+  hasJd = res.has_jd; hasCv = res.has_resume;
+  sessionLive = false;          // server dropped the old session
+  document.getElementById('setupNote').textContent = '✓ ' + res.note;
+  refreshSetupUI();
+});
+function startFromSetup(){
+  closeModal('setupModal');
+  chat.innerHTML = '';
+  startSession();
+}
+async function startSession(){
+  add('sys','Connecting to your mentor…');
+  const res = await api('/api/start', {});
+  if(res.error){ handle(res); return; }
+  sessionLive = true;
+  if(res.history){                 // reconnect: replay the conversation
+    chat.innerHTML = '';
+    res.history.forEach(m => {
+      const d = document.createElement('div');
+      d.className = 'msg ' + m.role; d.textContent = m.text; chat.appendChild(d);
+    });
+    chat.scrollTop = chat.scrollHeight;
+    if(res.mode) document.getElementById('mode').textContent = res.mode;
+  } else {
+    handle(res);
+  }
+  if(res.due > 0){
+    document.getElementById('due').textContent = '🃏 ' + res.due + ' cards due';
+    add('sys','You have ' + res.due + ' flashcards due — a quick review before we start locks in last session. Tap 🃏 Flashcards.');
+  }
 }
 /* coding round */
 async function startCode(){
-  if(busy) return;
+  if(busy || !sessionLive) return;
   add('sys','— setting up a coding round… —');
   const res = await api('/api/code/start', {});
   if(res.error){ add('sys','⚠ '+res.error); return; }
@@ -198,6 +365,7 @@ async function submitCode(){
 }
 /* flashcards */
 async function openReview(){
+  if(!sessionLive) return;
   const res = await api('/api/review/next', {});
   if(res.done){ add('sys','🃏 No cards due — come back after your next lesson.'); refreshDue(); return; }
   showCard(res);
@@ -313,13 +481,18 @@ async function refreshDue(){
 }
 /* boot */
 (async () => {
-  add('sys','Connecting to your mentor…');
-  const res = await api('/api/start', {});
-  handle(res);
-  if(res.due > 0){
-    document.getElementById('due').textContent = '🃏 ' + res.due + ' cards due';
-    add('sys','You have ' + res.due + ' flashcards due — a quick review before we start locks in last session. Tap 🃏 Flashcards.');
+  if(!user){
+    document.getElementById('loginModal').classList.add('open');
+    document.getElementById('loginName').focus();
+    return;
   }
+  // re-login silently to refresh state for the saved name
+  const res = await api('/api/login', {name: displayName || user});
+  if(res.error){ switchUser(); return; }
+  user = res.user; displayName = res.display_name;
+  hasJd = res.has_jd; hasCv = res.has_resume;
+  document.getElementById('who').textContent = '👤 ' + displayName;
+  if(hasJd) startSession(); else openSetup(true);
 })();
 </script>
 </body>

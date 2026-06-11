@@ -10,6 +10,13 @@ with spaced-repetition flashcards, and tracks your readiness score over time.
 Works as a terminal CLI **and** as a mobile-friendly web app served from your
 machine.
 
+**Multi-user:** the web app starts with a login screen — type your name and you
+get your own setup. An existing name reopens that person's prep (their JD,
+resume, memory, flashcards, readiness history); a new name creates a fresh one.
+Each person uploads their own job description and CV (PDF, Markdown, or plain
+text) from the 📄 panel, and every conversation runs on its own isolated Codex
+thread, so several people can prep at the same time.
+
 ---
 
 ## Requirements
@@ -40,13 +47,16 @@ pip install -r requirements.txt
 
 ```bash
 python interview_agent.py                          # CLI
-python interview_agent.py --web                    # mobile-friendly web UI
+python interview_agent.py --web                    # multi-user web UI
+python interview_agent.py --user priya             # CLI as a specific person
 python interview_agent.py --resume resume.pdf      # tailor to your resume
 python interview_agent.py --voice                  # CLI voice mode
 python interview_agent.py --fresh                  # ignore stored memory
 python interview_agent.py path/to/other_jd.md      # different role
 python interview_agent.py --web --port 9000        # custom web port
 ```
+
+PDF uploads in the web UI need `pypdf` on the server: `pip install pypdf`.
 
 ### Mobile-friendly web UI
 
@@ -135,16 +145,19 @@ aura/
   static/index.html       # responsive mobile-first chat UI
 ```
 
-### Your data (all local, all gitignored)
+### Your data (all local, all gitignored, one folder per login name)
 
 ```
-.aura/profile.json        # skill memory across sessions
-.aura/flashcards.json     # spaced-repetition deck
-.aura/stories.md          # polished STAR story bank
-.aura/reports/            # readiness reports
-.aura/scores.csv          # readiness score history
-.aura/workspace/          # coding round problems & solutions
-.aura_session.md          # transcript of the latest session
+.aura/users/<name>/jd.md              # that person's job description
+.aura/users/<name>/resume.md          # that person's CV (extracted text)
+.aura/users/<name>/uploads/           # original uploaded files (PDF etc.)
+.aura/users/<name>/profile.json       # skill memory across sessions
+.aura/users/<name>/flashcards.json    # spaced-repetition deck
+.aura/users/<name>/stories.md         # polished STAR story bank
+.aura/users/<name>/reports/           # readiness reports
+.aura/users/<name>/scores.csv         # readiness score history
+.aura/users/<name>/workspace/         # coding round problems & solutions
+.aura/users/<name>/session.md         # transcript of the latest session
 ```
 
 ## Troubleshooting

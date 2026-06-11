@@ -7,7 +7,7 @@ then reseed a brand-new Codex session with the mentor brief + that summary.
 The user experiences one uninterrupted conversation.
 """
 
-from .backend import codex_turn
+from .backend import CodexThread
 
 # ~4 chars/token; budget well under typical context limits to leave headroom
 MAX_CHARS = 120_000
@@ -54,13 +54,13 @@ class ContextTracker:
         self.turns = 0
 
 
-def compact_session(base_brief: str) -> str:
-    """Summarize the live session and reseed a fresh one.
+def compact_session(base_brief: str, thread: CodexThread) -> str:
+    """Summarize the live session and reseed a fresh one on the same thread.
 
     base_brief: the full mentor brief (JD + resume + operating instructions)
     minus the 'greet them' opener — the continuation note overrides that.
     Returns the new session's first reply (usually the mid-flow continuation).
     """
-    handoff = codex_turn(HANDOFF_PROMPT, first=False)
+    handoff = thread.turn(HANDOFF_PROMPT)
     seed = base_brief + CONTINUATION_NOTE.format(handoff=handoff)
-    return codex_turn(seed, first=True)
+    return thread.turn(seed, first=True)

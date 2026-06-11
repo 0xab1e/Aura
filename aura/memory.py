@@ -1,6 +1,6 @@
 """Persistent candidate profile — Aura's memory across sessions.
 
-Stored in .aura/profile.json:
+Stored per user in .aura/users/<name>/profile.json:
 {
   "skills": {"<skill>": {"status": "strong|shaky|taught|untested",
                           "last_checked": "ISO date", "notes": "..."}},
@@ -12,10 +12,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .backend import codex_turn, extract_json
-
-AURA_DIR = Path(".aura")
-PROFILE_FILE = AURA_DIR / "profile.json"
+from .backend import CodexThread, extract_json
 
 PROFILE_UPDATE_PROMPT = """\
 [SYSTEM TASK — not part of the interview; the candidate will not see this.]
@@ -27,18 +24,18 @@ Summarize your current mental model of the candidate as JSON only, no prose:
 Include every skill you probed or taught this session. Output ONLY the JSON."""
 
 
-def load_profile() -> dict:
-    if PROFILE_FILE.exists():
+def load_profile(profile_file: Path) -> dict:
+    if profile_file.exists():
         try:
-            return json.loads(PROFILE_FILE.read_text())
+            return json.loads(profile_file.read_text())
         except json.JSONDecodeError:
             pass
     return {"skills": {}, "sessions": []}
 
 
-def save_profile(profile: dict) -> None:
-    AURA_DIR.mkdir(exist_ok=True)
-    PROFILE_FILE.write_text(json.dumps(profile, indent=2))
+def save_profile(profile: dict, profile_file: Path) -> None:
+    profile_file.parent.mkdir(parents=True, exist_ok=True)
+    profile_file.write_text(json.dumps(profile, indent=2))
 
 
 def profile_brief(profile: dict) -> str:
@@ -61,10 +58,11 @@ def profile_brief(profile: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def update_profile_from_session(profile: dict) -> dict:
+def update_profile_from_session(profile: dict, thread: CodexThread,
+                                profile_file: Path) -> dict:
     """Ask the live Codex session for its skill map and merge it in."""
     try:
-        reply = codex_turn(PROFILE_UPDATE_PROMPT, first=False)
+        reply = thread.turn(PROFILE_UPDATE_PROMPT)
     except RuntimeError:
         return profile
     data = extract_json(reply)
@@ -82,5 +80,5 @@ def update_profile_from_session(profile: dict) -> dict:
     if data.get("session_summary"):
         profile["sessions"].append(
             {"date": today, "summary": data["session_summary"]})
-    save_profile(profile)
+    save_profile(profile, profile_file)
     return profile
