@@ -104,7 +104,7 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
     if path == "/api/start":
         if entry["session"] is None:
             try:
-                entry["session"] = AuraSession(user)
+                entry["session"] = AuraSession(user, repo_fallback=False)
             except SetupError as e:
                 return {"error": str(e), "need_setup": True}
         s = entry["session"]

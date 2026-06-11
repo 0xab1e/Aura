@@ -81,11 +81,13 @@ class SetupError(Exception):
     """The user's setup is incomplete (e.g. no JD yet) — recoverable."""
 
 
-def load_jd(user: UserStore, jd_path: str | None) -> str:
-    """The user's uploaded JD wins; an explicit path or the repo-root
-    job_description.md are CLI fallbacks."""
+def load_jd(user: UserStore, jd_path: str | None,
+            repo_fallback: bool = True) -> str:
+    """The user's uploaded JD wins. An explicit path or the repo-root
+    job_description.md are CLI-only fallbacks — the web UI must never leak
+    one person's documents to another."""
     candidates = ([Path(jd_path)] if jd_path else
-                  [user.jd_file, Path(JD_FILE)])
+                  [user.jd_file] + ([Path(JD_FILE)] if repo_fallback else []))
     for p in candidates:
         if not p.exists():
             continue
@@ -99,9 +101,11 @@ def load_jd(user: UserStore, jd_path: str | None) -> str:
                      "to start your prep.")
 
 
-def load_resume(user: UserStore, resume_path: str | None) -> str:
+def load_resume(user: UserStore, resume_path: str | None,
+                repo_fallback: bool = True) -> str:
     candidates = ([Path(resume_path)] if resume_path else
-                  [user.resume_file, Path("resume.md")])
+                  [user.resume_file] +
+                  ([Path("resume.md")] if repo_fallback else []))
     for p in candidates:
         if not p.exists():
             if resume_path:
@@ -125,12 +129,13 @@ class AuraSession:
     flashcard harvesting, and automatic context compaction."""
 
     def __init__(self, user: UserStore, jd_path: str | None = None,
-                 resume_path: str | None = None, fresh: bool = False):
+                 resume_path: str | None = None, fresh: bool = False,
+                 repo_fallback: bool = True):
         self.user = user
         user.create()
         self.thread = CodexThread()
-        self.jd = load_jd(user, jd_path)
-        self.resume = load_resume(user, resume_path)
+        self.jd = load_jd(user, jd_path, repo_fallback)
+        self.resume = load_resume(user, resume_path, repo_fallback)
         self.profile = ({"skills": {}, "sessions": []} if fresh
                         else memory.load_profile(user.profile_file))
         self.deck = flashcards.load_deck(user.deck_file)
