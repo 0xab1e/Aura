@@ -17,8 +17,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import coding, flashcards
-from .session import AuraSession, SetupError
+from . import coding, curriculum, flashcards, memory
+from .session import AuraSession, SetupError, load_jd, load_resume
 from .users import MAX_UPLOAD_BYTES, UserStore
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -33,7 +33,8 @@ def _entry(slug: str) -> dict:
     with _registry_lock:
         return _sessions.setdefault(slug, {
             "session": None, "started": False, "reply0": "",
-            "coding": None, "history": [], "lock": threading.Lock(),
+            "coding": None, "history": [], "episode": None,
+            "lock": threading.Lock(),
         })
 
 
@@ -120,6 +121,9 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
                 "due": len(flashcards.due_cards(s.deck)),
                 "user": user.slug, "display_name": user.display_name}
 
+    if path.startswith("/api/learn/"):
+        return _handle_learn(path, body, user, entry)
+
     s = entry["session"]
     if s is None or not entry["started"]:
         return {"error": "session not started — reload the page",
@@ -189,6 +193,73 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
             flashcards.grade_card(s.deck, due[0], int(body.get("quality", 3)),
                                   user.deck_file)
         return {"ok": True}
+
+    return {"error": "not found"}
+
+
+def _user_docs(user: UserStore) -> tuple[str, str]:
+    """The user's own JD/resume only — never the repo-root fallbacks."""
+    jd = load_jd(user, None, repo_fallback=False)
+    resume = load_resume(user, None, repo_fallback=False)
+    return jd, resume
+
+
+def _handle_learn(path: str, body: dict, user: UserStore,
+                  entry: dict) -> dict:
+    """Topic-by-topic mode. Independent of the continuous chat session —
+    episodes run on their own Codex threads but share the user's skill
+    profile and flashcard deck."""
+    if path == "/api/learn/plan":
+        cur = None if body.get("regenerate") else curriculum.load_curriculum(user)
+        if cur is None:
+            try:
+                jd, resume = _user_docs(user)
+            except SetupError as e:
+                return {"error": str(e), "need_setup": True}
+            profile = memory.load_profile(user.profile_file)
+            try:
+                cur = curriculum.generate_curriculum(user, jd, resume, profile)
+            except RuntimeError as e:
+                return {"error": str(e)}
+        return {"plan": cur}
+
+    if path == "/api/learn/start":
+        try:
+            ch_i, ep_i = int(body.get("chapter")), int(body.get("episode"))
+        except (TypeError, ValueError):
+            return {"error": "bad episode reference"}
+        cur = curriculum.load_curriculum(user)
+        if cur is None or ch_i < 0 or ep_i < 0:
+            return {"error": "no topic plan yet — open Topics first"}
+        try:
+            chapter = cur["chapters"][ch_i]
+            episode = chapter["episodes"][ep_i]
+        except (KeyError, IndexError):
+            return {"error": "unknown episode — refresh the topic list"}
+        try:
+            jd, resume = _user_docs(user)
+        except SetupError as e:
+            return {"error": str(e), "need_setup": True}
+        es = curriculum.EpisodeSession(user, jd, resume, chapter, episode)
+        reply = es.start()
+        entry["episode"] = {"session": es, "ch": ch_i, "ep": ep_i}
+        curriculum.mark_episode(user, ch_i, ep_i, "in_progress")
+        return {"reply": reply, "chapter": chapter["title"],
+                "episode": episode["title"]}
+
+    ep = entry.get("episode")
+    if not ep:
+        return {"error": "no episode in progress — pick a topic first"}
+
+    if path == "/api/learn/message":
+        return {"reply": ep["session"].send(body.get("text", ""))}
+
+    if path == "/api/learn/finish":
+        result = ep["session"].finish()
+        curriculum.mark_episode(user, ep["ch"], ep["ep"], "done",
+                                result.get("mastery"))
+        entry["episode"] = None
+        return result
 
     return {"error": "not found"}
 

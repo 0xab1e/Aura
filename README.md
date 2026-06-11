@@ -88,6 +88,18 @@ audio packages needed.
 | `voice`/`text` | Toggle CLI voice mode mid-session |
 | `quit`         | End session: saves profile, flashcards, and a readiness report |
 
+### Topic-by-topic learning (📚 Topics)
+
+Prefer structure over one continuous chat? Tap **📚 Topics** and Aura builds a
+personalized curriculum from *your* JD and CV — chapters and episodes covering
+the role's core technical areas, a deep-dive into your resume's projects and
+claims, your current-job stories ("why are you leaving", impact, hard
+problems), behavioral prep, and system design where relevant. Each episode is
+a short focused session that teaches **and** tests that one topic, then scores
+your mastery (0–100). Scores show on the topic list, and everything an episode
+teaches flows into the same skill memory and flashcard deck your continuous
+mentor uses. Rebuild the plan any time (e.g. after uploading a new JD).
+
 ## Features
 
 - **Continuous mentoring loop** — no scripted question bank; Aura adapts each turn,

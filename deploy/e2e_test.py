@@ -89,4 +89,38 @@ r = post("/api/start", {"user": bob})
 assert r.get("need_setup"), r
 print("7. second user is isolated and asked for his own JD: OK")
 
+# 8. topic plan generated from HER docs (covers JD topics + resume + job)
+r = post("/api/learn/plan", {"user": alice})
+assert r.get("plan") and r["plan"]["chapters"], r
+chapters = r["plan"]["chapters"]
+n_eps = sum(len(c["episodes"]) for c in chapters)
+print(f"8. curriculum built: {len(chapters)} chapters / {n_eps} episodes")
+for c in chapters[:3]:
+    print(f"   - {c['title']}: {[e['title'] for e in c['episodes'][:3]]}")
+
+# 9. start an episode, exchange a focused turn
+r = post("/api/learn/start", {"user": alice, "chapter": 0, "episode": 0})
+assert r.get("reply"), r
+print(f"9. episode '{r['episode']}' started: {r['reply'][:90]}…")
+r = post("/api/learn/message",
+         {"user": alice, "text": "I'd add an index on the filter column and "
+                                  "check the query plan with EXPLAIN ANALYZE."})
+assert r.get("reply"), r
+print(f"   turn answered: {r['reply'][:90]}…")
+
+# 10. finish -> mastery score, verdict, plan marked done
+r = post("/api/learn/finish", {"user": alice})
+assert "verdict" in r, r
+print(f"10. episode finished, mastery {r.get('mastery')}, "
+      f"+{r.get('cards_added', 0)} flashcards: OK")
+r = post("/api/learn/plan", {"user": alice})
+ep0 = r["plan"]["chapters"][0]["episodes"][0]
+assert ep0["status"] == "done", ep0
+print("11. plan shows the episode as done with its score: OK")
+
+# 12. bob has no plan access without a JD
+r = post("/api/learn/plan", {"user": bob})
+assert r.get("need_setup"), r
+print("12. second user's plan requires his own JD: OK")
+
 print("\nALL E2E TESTS PASS")

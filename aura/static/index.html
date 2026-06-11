@@ -76,6 +76,19 @@
   .g0{background:#7a2334}.g3{background:#7a6223}.g4{background:#2d6b3f}.g5{background:#1f8a4c}
   #cardFront{font-size:17px;font-weight:600;margin:8px 0}
   #cardBack{display:none;color:#cfe3ff;background:#10131b;padding:12px;border-radius:12px;margin-top:8px}
+  /* topic-by-topic learning */
+  .chapter{margin-top:14px}
+  .chTitle{font-weight:600;font-size:15px}
+  .chWhy{color:var(--muted);font-size:12px;margin:2px 0 4px}
+  .ep{display:flex;gap:10px;width:100%;text-align:left;background:#10131b;
+      border:1px solid #2a2f40;border-radius:12px;padding:10px 12px;margin-top:6px;
+      color:var(--text);cursor:pointer;font-size:14px;align-items:flex-start}
+  .ep:active{border-color:var(--accent)}
+  .epIcon{flex:0 0 auto}
+  .epBody{display:flex;flex-direction:column;min-width:0}
+  .epTitle{font-weight:600;font-size:14px}
+  .epFocus{color:var(--muted);font-size:12px}
+  body.episode .chip.main{display:none}
   /* doc upload rows */
   .doc{display:flex;align-items:center;gap:10px;background:#10131b;border:1px solid #2a2f40;
        border-radius:12px;padding:12px;margin-top:10px}
@@ -99,15 +112,17 @@
 <div id="chat"></div>
 
 <div id="chips">
-  <button class="chip" onclick="cmd('debrief')">📋 Debrief</button>
-  <button class="chip" onclick="openReview()">🃏 Flashcards</button>
-  <button class="chip" onclick="startCode()">💻 Coding</button>
-  <button class="chip" onclick="cmd('behavioral')">🗣 Behavioral</button>
-  <button class="chip" onclick="cmd('mock')">🎯 Mock</button>
-  <button class="chip" onclick="cmd('design')">🏗 Design</button>
-  <button class="chip" onclick="cmd('end')">↩︎ End round</button>
-  <button class="chip" onclick="openSetup(false)">📄 My docs</button>
-  <button class="chip" onclick="cmd('quit')">💾 Save & end</button>
+  <button class="chip" onclick="openLearn(false)">📚 Topics</button>
+  <button class="chip" id="finishChip" style="display:none" onclick="finishEpisode()">✅ Finish episode</button>
+  <button class="chip main" onclick="cmd('debrief')">📋 Debrief</button>
+  <button class="chip main" onclick="openReview()">🃏 Flashcards</button>
+  <button class="chip main" onclick="startCode()">💻 Coding</button>
+  <button class="chip main" onclick="cmd('behavioral')">🗣 Behavioral</button>
+  <button class="chip main" onclick="cmd('mock')">🎯 Mock</button>
+  <button class="chip main" onclick="cmd('design')">🏗 Design</button>
+  <button class="chip main" onclick="cmd('end')">↩︎ End round</button>
+  <button class="chip main" onclick="openSetup(false)">📄 My docs</button>
+  <button class="chip main" onclick="cmd('quit')">💾 Save & end</button>
 </div>
 
 <div id="composer">
@@ -163,6 +178,21 @@
   </div>
 </div>
 
+<!-- topic-by-topic learning -->
+<div class="modal center" id="learnModal">
+  <div class="sheet">
+    <h2>📚 Topic-by-topic prep</h2>
+    <p>Built from <b>your</b> job description and CV. Pick an episode — a short
+       focused session that teaches and tests that one topic. Your scores,
+       skill memory, and flashcards carry over.</p>
+    <div id="learnList"></div>
+    <div class="row">
+      <button class="btn gray" onclick="rebuildPlan()">↻ Rebuild plan</button>
+      <button class="btn" onclick="closeModal('learnModal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- coding round sheet -->
 <div class="modal" id="codeModal">
   <div class="sheet">
@@ -202,7 +232,7 @@ const input = document.getElementById('input');
 let speakOn = false, rec = null, busy = false, voiceMode = false;
 let user = localStorage.getItem('aura_user') || '';
 let displayName = localStorage.getItem('aura_name') || '';
-let hasJd = false, hasCv = false, sessionLive = false;
+let hasJd = false, hasCv = false, sessionLive = false, inEpisode = false;
 
 function add(role, text){
   if(!text) return;
@@ -244,9 +274,14 @@ function handle(res){
 }
 async function sendMsg(){
   const text = input.value.trim();
-  if(!text || busy || !sessionLive) return;
+  if(!text || busy || (!sessionLive && !inEpisode)) return;
   input.value = ''; autosize();
   add('me', text);
+  if(inEpisode){
+    const res = await api('/api/learn/message', {text});
+    if(res.error) add('sys','⚠ ' + res.error); else add('ai', res.reply);
+    return;
+  }
   handle(await api('/api/message', {text}));
 }
 async function cmd(c){
@@ -345,6 +380,68 @@ async function startSession(){
     document.getElementById('due').textContent = '🃏 ' + res.due + ' cards due';
     add('sys','You have ' + res.due + ' flashcards due — a quick review before we start locks in last session. Tap 🃏 Flashcards.');
   }
+}
+/* ── topic-by-topic learning ────────────────────────────────────────── */
+function esc(s){ const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+async function openLearn(regen){
+  if(busy) return;
+  add('sys', regen ? '— rebuilding your topic plan from your JD/CV… —'
+                   : '— loading your topic plan… —');
+  const res = await api('/api/learn/plan', regen ? {regenerate:true} : {});
+  if(res.error){ handle(res); return; }
+  renderPlan(res.plan);
+  document.getElementById('learnModal').classList.add('open');
+}
+function rebuildPlan(){
+  if(!confirm('Rebuild the plan from your current JD/CV? Episode progress marks reset.')) return;
+  closeModal('learnModal');
+  openLearn(true);
+}
+function renderPlan(plan){
+  const el = document.getElementById('learnList'); el.innerHTML = '';
+  plan.chapters.forEach((ch, ci) => {
+    const c = document.createElement('div'); c.className = 'chapter';
+    c.innerHTML = '<div class="chTitle">' + (ci+1) + '. ' + esc(ch.title) + '</div>' +
+                  '<div class="chWhy">' + esc(ch.why) + '</div>';
+    ch.episodes.forEach((ep, ei) => {
+      const b = document.createElement('button'); b.className = 'ep';
+      const icon = ep.status === 'done' ? '✅' : ep.status === 'in_progress' ? '▶️' : '⭕';
+      const score = ep.score != null ? ' · ' + ep.score + '/100' : '';
+      b.innerHTML = '<span class="epIcon">' + icon + '</span>' +
+                    '<span class="epBody"><span class="epTitle">' + esc(ep.title) + score + '</span>' +
+                    '<span class="epFocus">' + esc(ep.focus) + '</span></span>';
+      b.onclick = () => startEpisode(ci, ei, ep.title);
+      c.appendChild(b);
+    });
+    el.appendChild(c);
+  });
+}
+async function startEpisode(ci, ei, title){
+  if(busy) return;
+  closeModal('learnModal');
+  chat.innerHTML = '';
+  add('sys','— 📚 Episode: ' + title + ' —');
+  const res = await api('/api/learn/start', {chapter:ci, episode:ei});
+  if(res.error){ handle(res); return; }
+  inEpisode = true;
+  document.body.classList.add('episode');
+  document.getElementById('finishChip').style.display = '';
+  document.getElementById('mode').textContent = 'episode';
+  add('ai', res.reply);
+}
+async function finishEpisode(){
+  if(busy || !inEpisode) return;
+  add('sys','— wrapping up this episode… —');
+  const res = await api('/api/learn/finish', {});
+  if(res.error){ add('sys','⚠ ' + res.error); return; }
+  inEpisode = false;
+  document.body.classList.remove('episode');
+  document.getElementById('finishChip').style.display = 'none';
+  document.getElementById('mode').textContent = 'mentor';
+  if(res.mastery != null) add('sys','📊 Topic mastery: ' + res.mastery + '/100');
+  if(res.verdict) add('ai', res.verdict);
+  if(res.cards_added) add('sys','🃏 ' + res.cards_added + ' new flashcard(s) added.');
+  add('sys','Pick another topic with 📚 Topics, or just type to continue your mentor chat.');
 }
 /* coding round */
 async function startCode(){
