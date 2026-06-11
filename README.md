@@ -100,6 +100,25 @@ your mastery (0–100). Scores show on the topic list, and everything an episode
 teaches flows into the same skill memory and flashcard deck your continuous
 mentor uses. Rebuild the plan any time (e.g. after uploading a new JD).
 
+### Interview-date scheduling (📅 Schedule)
+
+Add your interviews — the phone screen, the technical round, the onsite —
+each with its date and what it focuses on. Aura builds a **day-by-day
+sub-schedule for each one**, working backward from the date: lessons for the
+skills you're still shaky or untested on first, daily flashcard slots, mock /
+behavioral / design rounds placed near the date, and a light confidence day
+right before. The "Today" view merges all interviews into one daily checklist;
+lesson items tick themselves when you finish the episode. Reschedule any
+interview from today and it re-prioritizes around what you've learned since.
+
+### One shared picture of what you know
+
+Every tool reads and writes the same skill profile: the mentor chat
+checkpoints its mental model every few turns (not just at quit), finishing an
+episode folds its verdict in, and even flashcard self-ratings update it — fail
+a card and that skill is marked shaky everywhere; the mentor will re-teach it,
+the scheduler will plan time for it.
+
 ## Features
 
 - **Continuous mentoring loop** — no scripted question bank; Aura adapts each turn,

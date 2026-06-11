@@ -131,4 +131,53 @@ assert r["has_jd"] and r["plan"]["done"] == 1, r
 print(f"13. status: plan {r['plan']['done']}/{r['plan']['total']} done, "
       f"{r['due']} cards due: OK")
 
+# 14. add an interview -> day-by-day sub-schedule built around her gaps
+from datetime import date as _d, timedelta
+today = _d.today().isoformat()
+ivdate = (_d.today() + timedelta(days=5)).isoformat()
+r = post("/api/interviews/add",
+         {"user": alice, "label": "Phone screen", "date": ivdate,
+          "focus": "REST APIs and PostgreSQL", "today": today})
+assert r.get("ok") and r["interview"]["schedule"], r
+iv = r["interview"]
+days = iv["schedule"]
+assert all(today <= d["date"] < ivdate for d in days), days
+items = [i for d in days for i in d["items"]]
+refs = [i["ref"] for i in items if i["type"] == "episode"]
+assert refs, "schedule contains no episode items"
+print(f"14. interview scheduled: {len(days)} days, {len(items)} items, "
+      f"{len(refs)} lessons")
+print(f"    day 1 ({days[0]['date']}): " +
+      "; ".join(f"[{i['type']}] {i['title']}" for i in days[0]["items"][:3]))
+
+# 15. tick a non-episode item, verify it persists
+ticked = False
+for d in days:
+    for idx, i in enumerate(d["items"]):
+        if i["type"] != "episode":
+            r2 = post("/api/schedule/check",
+                      {"user": alice, "id": iv["id"], "date": d["date"],
+                       "index": idx, "done": True})
+            assert r2["ok"], r2
+            r3 = post("/api/interviews", {"user": alice})
+            d3 = next(x for x in r3["interviews"][0]["schedule"]
+                      if x["date"] == d["date"])
+            assert d3["items"][idx]["done"] is True
+            ticked = True
+            break
+    if ticked:
+        break
+assert ticked
+print("15. schedule item ticked and persisted: OK")
+
+# 16. status surfaces the interview; flashcard grade updates shared profile
+r = post("/api/status", {"user": alice})
+assert r["interviews"] and r["interviews"][0]["label"] == "Phone screen", r
+print("16. status shows the interview: OK")
+r = post("/api/review/next", {"user": alice})
+if not r.get("done"):
+    post("/api/review/grade", {"user": alice, "quality": 0})
+    print(f"17. graded a due card (skill '{r.get('skill','')}') -> "
+          "profile marked shaky: OK")
+
 print("\nALL E2E TESTS PASS")

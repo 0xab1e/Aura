@@ -17,9 +17,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import coding, curriculum, flashcards, memory
+from datetime import date as _date
+
+from . import coding, curriculum, flashcards, memory, schedule
 from .session import AuraSession, SetupError, load_jd, load_resume
 from .users import MAX_UPLOAD_BYTES, UserStore
+
+PROFILE_SAVE_EVERY = 6   # mentor turns between background profile saves
 
 STATIC_DIR = Path(__file__).parent / "static"
 PORT = 8765
@@ -34,7 +38,7 @@ def _entry(slug: str) -> dict:
         return _sessions.setdefault(slug, {
             "session": None, "started": False, "reply0": "",
             "coding": None, "history": [], "episode": None,
-            "lock": threading.Lock(),
+            "turns": 0, "lock": threading.Lock(),
         })
 
 
@@ -124,6 +128,9 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
     if path.startswith("/api/learn/"):
         return _handle_learn(path, body, user, entry)
 
+    if path.startswith("/api/interviews") or path == "/api/schedule/check":
+        return _handle_interviews(path, body, user)
+
     # ── session-independent: dashboard status + flashcard review ────────
     if path == "/api/status":
         deck = flashcards.load_deck(user.deck_file)
@@ -137,7 +144,10 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
                 "due": len(flashcards.due_cards(deck)),
                 "started": entry["started"], "plan": plan,
                 "episode_live": entry.get("episode") is not None,
-                "display_name": user.display_name}
+                "display_name": user.display_name,
+                "interviews": [{"id": i["id"], "label": i["label"],
+                                "date": i["date"]}
+                               for i in schedule.load_interviews(user)]}
 
     if path == "/api/review/next":
         deck = flashcards.load_deck(user.deck_file)
@@ -152,8 +162,10 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         deck = flashcards.load_deck(user.deck_file)
         due = flashcards.due_cards(deck)
         if due:
-            flashcards.grade_card(deck, due[0], int(body.get("quality", 3)),
-                                  user.deck_file)
+            quality = int(body.get("quality", 3))
+            card = due[0]
+            flashcards.grade_card(deck, card, quality, user.deck_file)
+            _grade_to_profile(user, card.get("skill", ""), quality)
         return {"ok": True}
 
     s = entry["session"]
@@ -169,6 +181,12 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         cont = s.maybe_compact()
         if cont:
             _remember(entry, "ai", cont)
+        # keep the shared skill profile fresh so episodes, schedules, and
+        # flashcards see what the chat just taught — not only at quit time
+        entry["turns"] += 1
+        if entry["turns"] % PROFILE_SAVE_EVERY == 0:
+            threading.Thread(target=_checkpoint_profile, args=(entry,),
+                             daemon=True).start()
         return {"reply": reply, "extra": [cont] if cont else [], "mode": s.mode}
 
     if path == "/api/command":
@@ -212,6 +230,101 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         return {"reply": review, "mode": s.mode}
 
     return {"error": "not found"}
+
+
+def _grade_to_profile(user: UserStore, skill: str, quality: int) -> None:
+    """Flashcard self-ratings feed the shared skill profile: a blank on a
+    card marks its skill shaky everywhere; an easy recall marks it strong."""
+    if not skill or quality == 3:   # 3 = hard-but-recalled, no signal shift
+        return
+    profile = memory.load_profile(user.profile_file)
+    prev = profile["skills"].get(skill, {})
+    profile["skills"][skill] = {
+        "status": "shaky" if quality < 3 else "strong",
+        "notes": (prev.get("notes") or "").split(" | flashcard")[0] +
+                 f" | flashcard recall {'failed' if quality < 3 else 'easy'}",
+        "last_checked": _date.today().isoformat(),
+    }
+    memory.save_profile(profile, user.profile_file)
+
+
+def _today(body: dict) -> str:
+    t = body.get("today", "")
+    return t if isinstance(t, str) and len(t) == 10 else _date.today().isoformat()
+
+
+def _handle_interviews(path: str, body: dict, user: UserStore) -> dict:
+    """Interview registry + per-interview day-by-day sub-schedules."""
+    if path == "/api/interviews":
+        return {"interviews": schedule.load_interviews(user)}
+
+    if path == "/api/interviews/add":
+        label = (body.get("label") or "").strip() or "Interview"
+        date = (body.get("date") or "").strip()
+        focus = (body.get("focus") or "").strip()
+        today = _today(body)
+        if not date or len(date) != 10 or date <= today:
+            return {"error": "pick an interview date that's in the future"}
+        try:
+            jd, resume = _user_docs(user)
+        except SetupError as e:
+            return {"error": str(e), "need_setup": True}
+        cur = curriculum.load_curriculum(user)
+        if cur is None:   # the schedule plans around episodes, so build them
+            profile = memory.load_profile(user.profile_file)
+            try:
+                cur = curriculum.generate_curriculum(user, jd, resume, profile)
+            except RuntimeError as e:
+                return {"error": str(e)}
+        try:
+            iv = schedule.add_interview(user, label, date, focus, today,
+                                        jd, resume, cur)
+        except RuntimeError as e:
+            return {"error": str(e)}
+        return {"ok": True, "interview": iv}
+
+    if path == "/api/interviews/delete":
+        schedule.delete_interview(user, body.get("id", ""))
+        return {"ok": True}
+
+    if path == "/api/interviews/redo":
+        try:
+            jd, resume = _user_docs(user)
+        except SetupError as e:
+            return {"error": str(e), "need_setup": True}
+        cur = curriculum.load_curriculum(user)
+        if cur is None:
+            return {"error": "no study plan yet — add the interview again"}
+        try:
+            iv = schedule.regenerate(user, body.get("id", ""), _today(body),
+                                     jd, resume, cur)
+        except RuntimeError as e:
+            return {"error": str(e)}
+        if iv is None:
+            return {"error": "unknown interview"}
+        return {"ok": True, "interview": iv}
+
+    if path == "/api/schedule/check":
+        ok = schedule.check_item(user, body.get("id", ""),
+                                 body.get("date", ""),
+                                 int(body.get("index", -1)),
+                                 bool(body.get("done", True)))
+        return {"ok": ok}
+
+    return {"error": "not found"}
+
+
+def _checkpoint_profile(entry: dict) -> None:
+    """Background save of the mentor session's skill map (one model call)."""
+    with entry["lock"]:
+        s = entry.get("session")
+        if s is None:
+            return
+        try:
+            memory.update_profile_from_session(s.profile, s.thread,
+                                               s.user.profile_file)
+        except Exception:
+            pass
 
 
 def _user_docs(user: UserStore) -> tuple[str, str]:

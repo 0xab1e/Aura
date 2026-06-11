@@ -123,6 +123,37 @@
   .scoreHi{background:#0f3d2b;color:var(--good)}
   .scoreMid{background:#3d330f;color:var(--warn)}
   .scoreLo{background:#3d1414;color:var(--bad)}
+  /* ── schedule ── */
+  .seg{display:flex;background:var(--input);border:1px solid var(--line);
+       border-radius:12px;padding:4px;margin-bottom:2px}
+  .seg button{flex:1;border:none;background:none;color:var(--muted);padding:9px;
+       border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
+  .seg button.active{background:var(--accent);color:#fff}
+  .sitem{display:flex;align-items:center;gap:10px;background:var(--card);
+       border:1px solid var(--line);border-radius:12px;padding:10px 12px;
+       margin-top:8px;cursor:pointer}
+  .sitem.done{opacity:.5}
+  .sitem .si{font-size:17px;flex:0 0 24px;text-align:center}
+  .sitem .sb{flex:1;min-width:0;display:flex;flex-direction:column}
+  .sitem .st{font-weight:600;font-size:14px}
+  .sitem .sw{color:var(--muted);font-size:12px}
+  .tick{margin-left:auto;flex:0 0 auto;width:28px;height:28px;border-radius:9px;
+       border:1px solid var(--line);background:var(--input);color:transparent;
+       cursor:pointer;font-size:14px}
+  .tick.on{background:var(--good);border-color:var(--good);color:#06281a}
+  .dayhead{margin-top:14px;font-size:13px;color:var(--muted);font-weight:700;
+       text-transform:uppercase;letter-spacing:.4px}
+  .dayhead .theme{font-weight:400;text-transform:none;letter-spacing:0}
+  details.ivdays{margin-top:8px}
+  details.ivdays summary{cursor:pointer;font-size:13.5px;color:var(--accent);
+       list-style-position:inside}
+  .countdown{font-size:12.5px;font-weight:700;border-radius:99px;padding:2px 10px;
+       background:#103524;color:var(--good)}
+  .countdown.soon{background:#3d330f;color:var(--warn)}
+  .countdown.now{background:#3d1414;color:var(--bad)}
+  input[type=date]{width:100%;background:var(--input);border:1px solid var(--line);
+       border-radius:14px;color:var(--text);padding:12px 16px;font-size:16px;
+       outline:none;margin-top:8px;color-scheme:dark}
   /* ── flashcards ── */
   .fcCard{background:var(--card);border:1px solid var(--line);border-radius:20px;
           padding:22px;margin-top:16px;min-height:180px}
@@ -405,6 +436,26 @@ function paintHome(){
       <div class="act"><button class="btn" onclick="show('scrDocs')">Upload documents</button></div>
     </div>`;
   } else {
+    const ivs = (stat.interviews || []).filter(i => ivDays(i.date) >= 0);
+    if(ivs.length){
+      const next = ivs[0];
+      h += `
+    <div class="card tappable" onclick="topicsView='schedule';show('scrTopics')">
+      <h3>📅 ${esc(next.label)} ${countdownHtml(next.date)}</h3>
+      <p>${ivs.length > 1 ? ivs.length + ' interviews scheduled. ' : ''}Your
+         day-by-day plan focuses on what you don't know yet — see what's on
+         for today.</p>
+      <div class="act"><button class="btn">Today's plan</button></div>
+    </div>`;
+    } else {
+      h += `
+    <div class="card tappable" onclick="topicsView='schedule';show('scrTopics')">
+      <h3>📅 Got an interview date?</h3>
+      <p>Add it and Aura schedules your prep day by day, working backward from
+         the date. Phone screen, technical round, onsite — each gets its own plan.</p>
+      <div class="act"><button class="btn gray">Plan my days</button></div>
+    </div>`;
+    }
     h += `
     <div class="card tappable" onclick="goChat()">
       <h3>💬 Talk to your mentor</h3>
@@ -412,7 +463,7 @@ function paintHome(){
          missing, and checks it stuck — like a senior engineer prepping you 1-on-1.</p>
       <div class="act"><button class="btn">${sessionLive ? 'Continue conversation' : 'Start talking'}</button></div>
     </div>
-    <div class="card tappable" onclick="show('scrTopics')">
+    <div class="card tappable" onclick="topicsView='topics';show('scrTopics')">
       <h3>📚 Study topic by topic</h3>
       <p>${plan ? 'Short focused lessons — pick a topic, get taught and tested on just that.'
                 : 'Aura turns your JD and CV into a personal syllabus of short, focused lessons.'}</p>
@@ -557,45 +608,48 @@ async function startRound(r){
   cmd(r);
 }
 
-/* ═══════════ topics ═══════════ */
+/* ═══════════ topics: schedule + all topics ═══════════ */
+let topicsView = 'schedule', interviewsCache = [];
+function todayStr(){ return new Date().toLocaleDateString('en-CA'); }
 async function openTopics(){
   const el = $('topicsScroll');
   if(!hasJd){
     el.innerHTML = `<div class="card"><h3>📚 Your study plan</h3>
-      <p>Once your job description is uploaded, Aura builds a personal syllabus:
-         the role's key technical areas, a deep-dive into your own resume,
-         stories from your current job, and behavioral prep.</p>
+      <p>Once your job description is uploaded, Aura builds a personal syllabus
+         and can schedule it day by day around your interview dates.</p>
       <div class="act"><button class="btn" onclick="show('scrDocs')">Upload documents first</button></div></div>`;
     return;
   }
   el.innerHTML = '<p class="hint mt">Loading your plan…</p>';
-  const res = await api('/api/learn/plan', {});
-  if(res.error){ el.innerHTML = '<div class="card"><p>⚠ ' + esc(res.error) + '</p></div>'; return; }
-  if(!res.plan){
-    el.innerHTML = `<div class="card"><h3>📚 Build your study plan</h3>
+  const [planRes, ivRes] = await Promise.all([
+    api('/api/learn/plan', {}), api('/api/interviews', {})]);
+  if(planRes.error){ el.innerHTML = '<div class="card"><p>⚠ ' + esc(planRes.error) + '</p></div>'; return; }
+  planCache = planRes.plan;
+  interviewsCache = ivRes.interviews || [];
+  renderTopicsScreen();
+}
+function setTopicsView(v){ topicsView = v; renderTopicsScreen(); }
+function renderTopicsScreen(){
+  const seg = `<div class="seg" style="margin-top:2px">
+    <button class="${topicsView==='schedule'?'active':''}" onclick="setTopicsView('schedule')">📅 Schedule</button>
+    <button class="${topicsView==='topics'?'active':''}" onclick="setTopicsView('topics')">📚 All topics</button></div>`;
+  $('topicsScroll').innerHTML = seg +
+    (topicsView === 'schedule' ? scheduleHtml() : planHtml());
+}
+/* ----- all-topics view ----- */
+function planHtml(){
+  if(!planCache){
+    return `<div class="card"><h3>📚 Build your study plan</h3>
       <p>Aura reads your job description and CV and creates chapters &amp;
          episodes personal to you — technical topics, your resume's projects,
          your current job's stories, and behavioral prep. Each episode is a
          short lesson that teaches and tests one thing.</p>
       <div class="act"><button class="btn" id="buildBtn" onclick="buildPlan(false)">✨ Build my plan (takes ~1 min)</button></div></div>`;
-    return;
   }
-  planCache = res.plan; renderPlan();
-}
-async function buildPlan(regen){
-  const btn = $('buildBtn'); if(btn){ btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>Building your plan — about a minute…'; }
-  const res = await api('/api/learn/plan', regen ? {regenerate:true} : {build:true});
-  if(res.error){ toast('⚠ ' + res.error, 4000); openTopics(); return; }
-  planCache = res.plan; renderPlan();
-  toast('Your study plan is ready 🎉');
-}
-function renderPlan(){
-  const el = $('topicsScroll');
   const eps = planCache.chapters.flatMap(c => c.episodes);
   const done = eps.filter(e => e.status === 'done').length;
   const pct = eps.length ? Math.round(done / eps.length * 100) : 0;
-  let h = `<div class="card" style="margin-top:4px">
+  let h = `<div class="card">
       <h3>Your progress</h3>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <p style="margin-top:6px">${done} of ${eps.length} episodes completed · ${pct}%</p>
@@ -605,24 +659,170 @@ function renderPlan(){
     h += `<div class="chapter"><div class="chTitle">${ci+1}. ${esc(ch.title)}</div>
           <div class="chWhy">${esc(ch.why)}</div>`;
     ch.episodes.forEach((ep, ei) => {
-      const icon = ep.status === 'done' ? '✅' : ep.status === 'in_progress' ? '⏸' : '▷';
-      let score = '';
-      if(ep.score != null){
-        const cls = ep.score >= 70 ? 'scoreHi' : ep.score >= 40 ? 'scoreMid' : 'scoreLo';
-        score = `<span class="scorePill ${cls}">${ep.score}/100</span>`;
-      }
-      h += `<button class="ep" onclick="startEpisode(${ci},${ei})">
-              <span class="epIcon">${icon}</span>
-              <span class="epBody"><span class="epTitle">${esc(ep.title)}${score}</span>
-              <span class="epFocus">${esc(ep.focus)}</span></span>
-              <span class="epGo">›</span></button>`;
+      h += epButtonHtml(ci, ei, ep);
     });
     h += `</div>`;
   });
   h += `<div class="card"><p>Uploaded a new JD or CV? Rebuild the plan to match.
         Completed scores reset.</p>
         <div class="act"><button class="btn gray" id="buildBtn" onclick="if(confirm('Rebuild your study plan from your current documents? Episode scores reset.'))buildPlan(true)">↻ Rebuild plan</button></div></div>`;
-  el.innerHTML = h;
+  return h;
+}
+function epButtonHtml(ci, ei, ep){
+  const icon = ep.status === 'done' ? '✅' : ep.status === 'in_progress' ? '⏸' : '▷';
+  let score = '';
+  if(ep.score != null){
+    const cls = ep.score >= 70 ? 'scoreHi' : ep.score >= 40 ? 'scoreMid' : 'scoreLo';
+    score = `<span class="scorePill ${cls}">${ep.score}/100</span>`;
+  }
+  return `<button class="ep" onclick="startEpisode(${ci},${ei})">
+            <span class="epIcon">${icon}</span>
+            <span class="epBody"><span class="epTitle">${esc(ep.title)}${score}</span>
+            <span class="epFocus">${esc(ep.focus)}</span></span>
+            <span class="epGo">›</span></button>`;
+}
+async function buildPlan(regen){
+  const btn = $('buildBtn'); if(btn){ btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Building your plan — about a minute…'; }
+  const res = await api('/api/learn/plan', regen ? {regenerate:true} : {build:true});
+  if(res.error){ toast('⚠ ' + res.error, 4000); openTopics(); return; }
+  planCache = res.plan; renderTopicsScreen();
+  toast('Your study plan is ready 🎉');
+}
+/* ----- schedule view ----- */
+function ivDays(date){
+  return Math.ceil((new Date(date) - new Date(todayStr())) / 86400000);
+}
+function countdownHtml(date){
+  const d = ivDays(date);
+  const cls = d <= 1 ? 'now' : d <= 4 ? 'soon' : '';
+  const txt = d < 0 ? 'past' : d === 0 ? 'TODAY' : d === 1 ? 'tomorrow' : 'in ' + d + ' days';
+  return `<span class="countdown ${cls}">${txt}</span>`;
+}
+function epFromRef(ref){
+  const m = /^ch(\d+)\.ep(\d+)$/.exec(ref || '');
+  if(!m || !planCache) return null;
+  const ch = planCache.chapters[+m[1]];
+  return ch ? {ci:+m[1], ei:+m[2], ep: ch.episodes[+m[2]]} : null;
+}
+function itemDone(it){
+  if(it.type === 'episode'){
+    const r = epFromRef(it.ref);
+    return r && r.ep ? r.ep.status === 'done' : false;
+  }
+  return !!it.done;
+}
+const ITEM_ICONS = {episode:'📚', flashcards:'🃏', mock:'🎤', behavioral:'🗣',
+                    design:'🏗', chat:'💬', rest:'🌴'};
+function itemHtml(ivId, date, it, idx, showTick){
+  const done = itemDone(it);
+  const tick = it.type === 'episode'
+    ? `<span class="tick ${done?'on':''}" style="pointer-events:none">✓</span>`
+    : `<button class="tick ${done?'on':''}" onclick="event.stopPropagation();tickItem('${ivId}','${date}',${idx},${done?'false':'true'})">✓</button>`;
+  return `<div class="sitem ${done?'done':''}" onclick="schedTap('${ivId}','${date}',${idx})">
+    <span class="si">${ITEM_ICONS[it.type] || '•'}</span>
+    <span class="sb"><span class="st">${esc(it.title)}</span>
+    <span class="sw">${esc(it.why)}</span></span>${showTick ? tick : ''}</div>`;
+}
+function scheduleHtml(){
+  let h = '';
+  const today = todayStr();
+  if(!interviewsCache.length){
+    h += `<div class="card"><h3>📅 Plan around your interview date</h3>
+      <p>Tell Aura when each interview is — the phone screen, the technical
+         round, the onsite — and it builds a day-by-day schedule for each,
+         working backward from the date and focusing on what you
+         <b>don't</b> know yet.</p></div>`;
+  } else {
+    // today, across all interviews
+    let todayItems = '';
+    interviewsCache.forEach(iv => {
+      (iv.schedule || []).forEach(day => {
+        if(day.date !== today) return;
+        todayItems += `<div class="dayhead">${esc(iv.label)} ${countdownHtml(iv.date)}</div>`;
+        day.items.forEach((it, idx) => todayItems += itemHtml(iv.id, day.date, it, idx, true));
+      });
+    });
+    h += `<div class="card"><h3>☀️ Today</h3>` + (todayItems ||
+         `<p>Nothing scheduled today — pick anything from a plan below, or
+            review flashcards.</p>`) + (todayItems ?
+         `<p style="font-size:12px;margin-top:10px">Tap an item to start it.
+            Lessons tick themselves when you finish them.</p>` : '') + `</div>`;
+    // each interview's sub-schedule
+    interviewsCache.forEach(iv => {
+      const upcoming = (iv.schedule || []).filter(d => d.date >= today);
+      h += `<div class="card"><h3>🎯 ${esc(iv.label)} ${countdownHtml(iv.date)}</h3>
+        <p>${esc(iv.date)}${iv.focus ? ' · ' + esc(iv.focus) : ''}</p>
+        <details class="ivdays" ${upcoming.length && upcoming[0].date === today ? '' : 'open'}>
+        <summary>Day-by-day plan (${upcoming.length} day${upcoming.length===1?'':'s'} left)</summary>`;
+      upcoming.forEach(day => {
+        h += `<div class="dayhead">${esc(day.date)}${day.date===today?' — today':''}
+              <span class="theme"> · ${esc(day.theme)}</span></div>`;
+        day.items.forEach((it, idx) => h += itemHtml(iv.id, day.date, it, idx, day.date >= today));
+      });
+      h += `</details><div class="rowflex">
+        <button class="btn gray small" onclick="redoInterview('${iv.id}')">↻ Reschedule from today</button>
+        <button class="btn gray small" onclick="delInterview('${iv.id}')">🗑 Remove</button>
+      </div></div>`;
+    });
+  }
+  h += `<div class="card"><h3>➕ Add an interview</h3>
+    <p>Each interview gets its own schedule — add the phone screen, the
+       technical round, and the onsite separately.</p>
+    <input type="text" id="ivLabel" placeholder="e.g. TI phone screen" autocomplete="off">
+    <input type="date" id="ivDate" min="${today}">
+    <input type="text" id="ivFocus" placeholder="What will it focus on? (optional)" autocomplete="off" style="margin-top:8px">
+    <div class="act"><button class="btn" id="ivAddBtn" onclick="addInterview()">📅 Build my schedule</button></div></div>`;
+  return h;
+}
+async function addInterview(){
+  const label = $('ivLabel').value.trim();
+  const date = $('ivDate').value;
+  if(!date){ toast('Pick the interview date first.'); return; }
+  const btn = $('ivAddBtn'); btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Building your schedule — give me a minute…';
+  const res = await api('/api/interviews/add',
+    {label, date, focus: $('ivFocus').value.trim(), today: todayStr()});
+  if(res.error){
+    btn.disabled = false; btn.textContent = '📅 Build my schedule';
+    if(res.need_setup){ show('scrDocs'); }
+    toast('⚠ ' + res.error, 4500); return;
+  }
+  toast('Schedule ready 🎉 Here\'s your plan.');
+  openTopics();
+}
+async function redoInterview(id){
+  if(!confirm('Rebuild this schedule starting from today? It re-prioritizes around what you now know.')) return;
+  toast('Rescheduling — about a minute…', 8000);
+  const res = await api('/api/interviews/redo', {id, today: todayStr()});
+  if(res.error){ toast('⚠ ' + res.error, 4000); return; }
+  toast('Schedule updated ✓');
+  openTopics();
+}
+async function delInterview(id){
+  if(!confirm('Remove this interview and its schedule?')) return;
+  await api('/api/interviews/delete', {id});
+  openTopics();
+}
+async function tickItem(ivId, date, idx, done){
+  await api('/api/schedule/check', {id: ivId, date, index: idx, done: done === 'true' || done === true});
+  const iv = interviewsCache.find(i => i.id === ivId);
+  if(iv){ const day = iv.schedule.find(d => d.date === date);
+    if(day && day.items[idx]) day.items[idx].done = (done === 'true' || done === true); }
+  renderTopicsScreen();
+}
+function schedTap(ivId, date, idx){
+  const iv = interviewsCache.find(i => i.id === ivId);
+  const it = iv && iv.schedule.find(d => d.date === date)?.items[idx];
+  if(!it) return;
+  if(it.type === 'episode'){
+    const r = epFromRef(it.ref);
+    if(r) startEpisode(r.ci, r.ei);
+    else toast('This lesson is from an older plan — rebuild the schedule.');
+  }
+  else if(it.type === 'flashcards') show('scrCards');
+  else if(it.type === 'chat'){ goChat(); }
+  else if(it.type === 'mock' || it.type === 'behavioral' || it.type === 'design') startRound(it.type);
 }
 async function startEpisode(ci, ei){
   if(busy) return;
