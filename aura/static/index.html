@@ -246,6 +246,8 @@
 <div class="screen" id="scrChat">
   <div class="topbar">
     <h1 id="chatTitle">Mentor chat<span class="sub" id="chatSub">free-flowing coaching conversation</span></h1>
+    <button class="btn small gray" id="epModeBtn" style="display:none"
+            onclick="toggleEpMode()">🎓 Teach me</button>
     <button class="btn small gray" id="finishEpBtn" style="display:none"
             onclick="finishEpisode()">✅ Finish &amp; score</button>
     <button class="iconbtn dim" id="voiceBtn" title="hands-free voice mode"
@@ -445,6 +447,15 @@ function paintHome(){
       <div class="act"><button class="btn">Resume lesson</button></div>
     </div>`;
     }
+    if(stat.coding){
+      h += `
+    <div class="card tappable" onclick="resumeCoding()">
+      <h3>💻 Coding exercise in progress</h3>
+      <p>“${esc(stat.coding)}” — your code is saved on the server; pick it up
+         here or on any device.</p>
+      <div class="act"><button class="btn">Resume exercise</button></div>
+    </div>`;
+    }
     const ivs = (stat.interviews || []).filter(i => ivDays(i.date) >= 0);
     if(ivs.length){
       const next = ivs[0];
@@ -536,14 +547,21 @@ function typing(on){
     $('chatList').scrollTop = $('chatList').scrollHeight; }
   if(!on && t) t.remove();
 }
+let epMode = 'quiz';
 function setChatHeader(){
   if(chatMode === 'episode'){
     $('chatTitle').innerHTML = '📚 ' + esc(curEpisode.title) +
-      '<span class="sub">focused lesson — finish any time to get your score</span>';
+      '<span class="sub">' + (epMode === 'learn'
+        ? '🎓 learn mode — Aura is teaching, no test questions'
+        : '🎯 quiz mode — say “I don’t know” and Aura teaches it') + '</span>';
     $('finishEpBtn').style.display = '';
+    const mb = $('epModeBtn');
+    mb.style.display = '';
+    mb.textContent = epMode === 'learn' ? '🎯 Quiz me' : '🎓 Teach me';
   } else {
     $('chatTitle').innerHTML = 'Mentor chat<span class="sub">free-flowing coaching conversation</span>';
     $('finishEpBtn').style.display = 'none';
+    $('epModeBtn').style.display = 'none';
   }
   const rb = $('roundBar');
   if(chatMode === 'mentor' && roundMode !== 'mentor'){
@@ -575,6 +593,7 @@ async function startMentor(){
     addMsg('sys', '⚠ ' + res.error); return;
   }
   sessionLive = true;
+  if(res.mode){ roundMode = res.mode; setChatHeader(); }
   if(res.history){
     mentorMsgs = res.history.slice(); renderChat();
   } else {
@@ -856,11 +875,24 @@ async function startEpisode(ci, ei, force){
   }
   if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
   if(res.resumed){
+    epMode = res.mode || 'quiz'; setChatHeader();
     episodeMsgs = (res.history || []).slice(); renderChat();
     addMsg('sys', '⏸ Resumed where you left off — same lesson, same conversation, on every device.');
     return;
   }
-  addMsg('sys', '📚 Lesson: ' + ep.title + ' — answer naturally, Aura teaches as you go. Tap “Finish & score” when you want your result.');
+  epMode = 'quiz'; setChatHeader();
+  addMsg('sys', '📚 Lesson: ' + ep.title + ' — if you don\'t know something, just say so and Aura switches to teaching it step by step. Or tap “🎓 Teach me” / “🎯 Quiz me” to switch yourself. “Finish & score” when you\'re done.');
+  addMsg('ai', res.reply);
+}
+async function toggleEpMode(){
+  if(busy || chatMode !== 'episode') return;
+  const next = epMode === 'learn' ? 'quiz' : 'learn';
+  busy = true; typing(true);
+  const res = await api('/api/learn/mode', {mode: next});
+  busy = false; typing(false);
+  if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  epMode = res.mode; setChatHeader();
+  addMsg('sys', res.marker);
   addMsg('ai', res.reply);
 }
 async function resumeLiveEpisode(){
@@ -984,7 +1016,26 @@ async function startCode(){
   $('codeArea').value = res.stub || '';
   $('codeModal').classList.add('open');
 }
+async function resumeCoding(){
+  await goChat();
+  if(!sessionLive) return;
+  const res = await api('/api/code/current', {});
+  if(!res.pending){ toast('That exercise was already submitted.'); refreshStatus(); return; }
+  $('codeTitle').textContent = '💻 ' + (res.title || 'Coding round');
+  $('codeStatement').textContent = res.statement;
+  $('codeArea').value = res.code || '';
+  $('codeModal').classList.add('open');
+}
+/* draft code autosaves to the server, so any device can continue it */
+let codeSaveTimer = null;
+$('codeArea').addEventListener('input', () => {
+  clearTimeout(codeSaveTimer);
+  codeSaveTimer = setTimeout(() => {
+    api('/api/code/save', {code: $('codeArea').value});
+  }, 1500);
+});
 async function submitCode(){
+  clearTimeout(codeSaveTimer);
   const code = $('codeArea').value;
   closeModal('codeModal');
   addMsg('sys', '— running your solution… —');

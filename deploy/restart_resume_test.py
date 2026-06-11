@@ -17,7 +17,12 @@ def post(path, body):
 
 r = post("/api/status", {"user": "e2e-alice"})
 assert r["started"] is True, f"mentor session not hydrated: {r}"
+assert r.get("coding"), f"pending coding round not hydrated: {r}"
 r = post("/api/start", {"user": "e2e-alice"})
 assert r.get("history"), f"no history replayed after restart: {r}"
-print(f"RESTART RESUME OK — mentor history replayed "
-      f"({len(r['history'])} messages) after service restart")
+n = len(r["history"])
+r = post("/api/code/current", {"user": "e2e-alice"})
+assert r["pending"] and "return 42" in r["code"], \
+    f"draft code lost across restart: {r}"
+print(f"RESTART RESUME OK — mentor history ({n} messages) and pending "
+      f"coding round with draft code survived the service restart")

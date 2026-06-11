@@ -123,7 +123,11 @@ def _save_live(user: UserStore, entry: dict) -> None:
     if ep is not None:
         data["episode"] = {"thread_id": ep["session"].thread.thread_id,
                            "ch": ep["ch"], "ep": ep["ep"],
+                           "mode": ep.get("mode", "quiz"),
                            "history": ep.get("history", [])[-200:]}
+    c = entry.get("coding")
+    if c is not None:
+        data["coding"] = {"data": c[0], "pdir": str(c[1])}
     try:
         _live_file(user).write_text(json.dumps(data))
     except OSError:
@@ -182,7 +186,11 @@ def _hydrate(user: UserStore, entry: dict) -> None:
         es = curriculum.EpisodeSession(user, jd, resume, chapter, episode)
         es.thread.thread_id = e["thread_id"]
         entry["episode"] = {"session": es, "ch": e["ch"], "ep": e["ep"],
+                            "mode": e.get("mode", "quiz"),
                             "history": e.get("history", [])}
+    c = data.get("coding")
+    if c and entry.get("coding") is None and Path(c.get("pdir", "")).exists():
+        entry["coding"] = (c["data"], Path(c["pdir"]))
 
 
 def _handle_session_api(path: str, body: dict, user: UserStore,
@@ -225,13 +233,18 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
             plan = {"total": len(eps),
                     "done": sum(1 for e in eps if e["status"] == "done")}
         live_ep = entry.get("episode")
+        live_code = entry.get("coding")
+        s = entry.get("session")
         return {"has_jd": user.has_jd, "has_resume": user.has_resume,
                 "due": len(flashcards.due_cards(deck)),
                 "started": entry["started"], "plan": plan,
+                "mode": s.mode if s else "mentor",
                 "episode_live": live_ep is not None,
                 "episode": ({"chapter": live_ep["ch"], "episode": live_ep["ep"],
                              "title": live_ep["session"].episode["title"]}
                             if live_ep else None),
+                "coding": (live_code[0].get("title", "Coding round")
+                           if live_code else None),
                 "display_name": user.display_name,
                 "interviews": [{"id": i["id"], "label": i["label"],
                                 "date": i["date"]}
@@ -309,8 +322,26 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
             return {"error": "couldn't set up a coding problem — try again"}
         data, pdir = setup
         entry["coding"] = (data, pdir)
+        _save_live(user, entry)
         return {"title": data.get("title", ""), "statement": data["statement"],
                 "stub": data.get("stub", "")}
+
+    if path == "/api/code/current":
+        if not entry["coding"]:
+            return {"pending": False}
+        data, pdir = entry["coding"]
+        solution = pdir / "solution.py"
+        return {"pending": True, "title": data.get("title", ""),
+                "statement": data["statement"],
+                "code": solution.read_text() if solution.exists() else
+                        data.get("stub", "")}
+
+    if path == "/api/code/save":
+        if not entry["coding"]:
+            return {"error": "no coding round in progress"}
+        _, pdir = entry["coding"]
+        (pdir / "solution.py").write_text(body.get("code", ""))
+        return {"ok": True}
 
     if path == "/api/code/submit":
         if not entry["coding"]:
@@ -457,6 +488,7 @@ def _handle_learn(path: str, body: dict, user: UserStore,
         # resume the SAME conversation, don't start a parallel one
         if live and live["ch"] == ch_i and live["ep"] == ep_i:
             return {"resumed": True, "history": live.get("history", []),
+                    "mode": live.get("mode", "quiz"),
                     "chapter": live["session"].chapter["title"],
                     "episode": live["session"].episode["title"]}
         # a different lesson is live: make the user decide, don't silently
@@ -479,6 +511,7 @@ def _handle_learn(path: str, body: dict, user: UserStore,
         es = curriculum.EpisodeSession(user, jd, resume, chapter, episode)
         reply = es.start()
         entry["episode"] = {"session": es, "ch": ch_i, "ep": ep_i,
+                            "mode": "quiz",
                             "history": [{"role": "ai", "text": reply}]}
         curriculum.mark_episode(user, ch_i, ep_i, "in_progress")
         _save_live(user, entry)
@@ -496,6 +529,20 @@ def _handle_learn(path: str, body: dict, user: UserStore,
         ep["history"].append({"role": "ai", "text": reply})
         _save_live(user, entry)
         return {"reply": reply}
+
+    if path == "/api/learn/mode":
+        mode = body.get("mode", "")
+        if mode not in ("learn", "quiz"):
+            return {"error": "mode must be learn or quiz"}
+        reply = ep["session"].set_mode(mode)
+        ep["mode"] = mode
+        marker = ("— 🎓 learn mode: Aura teaches, no test questions —"
+                  if mode == "learn" else
+                  "— 🎯 quiz mode: Aura tests what you've learned —")
+        ep["history"].append({"role": "sys", "text": marker})
+        ep["history"].append({"role": "ai", "text": reply})
+        _save_live(user, entry)
+        return {"reply": reply, "mode": mode, "marker": marker}
 
     if path == "/api/learn/finish":
         result = ep["session"].finish()

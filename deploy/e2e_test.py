@@ -110,6 +110,20 @@ r = post("/api/learn/message",
 assert r.get("reply"), r
 print(f"   turn answered: {r['reply'][:90]}…")
 
+# 9b. "another device" opening the same episode resumes, not restarts
+r = post("/api/learn/start", {"user": alice, "chapter": 0, "episode": 0})
+assert r.get("resumed") and len(r.get("history", [])) >= 3, r
+print(f"9b. same episode from second device resumed "
+      f"({len(r['history'])} messages, mode {r.get('mode')}): OK")
+
+# 9c. explicit learn-mode switch: Aura must teach, not test
+r = post("/api/learn/mode", {"user": alice, "mode": "learn"})
+assert r.get("mode") == "learn" and r.get("reply"), r
+print(f"9c. learn mode: {r['reply'][:100]}…")
+r = post("/api/learn/start", {"user": alice, "chapter": 0, "episode": 0})
+assert r.get("mode") == "learn", r
+print("9d. learn mode persisted on resume: OK")
+
 # 10. finish -> mastery score, verdict, plan marked done
 r = post("/api/learn/finish", {"user": alice})
 assert "verdict" in r, r
@@ -179,5 +193,19 @@ if not r.get("done"):
     post("/api/review/grade", {"user": alice, "quality": 0})
     print(f"17. graded a due card (skill '{r.get('skill','')}') -> "
           "profile marked shaky: OK")
+
+# 18. coding round lives on the server: visible + editable from any device
+r = post("/api/code/start", {"user": alice})
+assert r.get("statement"), r
+print(f"18. coding round started: {r.get('title', '?')}")
+r = post("/api/code/current", {"user": alice})
+assert r["pending"] and r.get("statement"), r
+post("/api/code/save", {"user": alice, "code": "def solve():\n    return 42\n"})
+r = post("/api/code/current", {"user": alice})
+assert "return 42" in r["code"], r
+r = post("/api/status", {"user": alice})
+assert r.get("coding"), r
+print("19. draft code saved server-side, visible from second device: OK")
+# left PENDING on purpose — restart_resume_test.py verifies it survives
 
 print("\nALL E2E TESTS PASS")
