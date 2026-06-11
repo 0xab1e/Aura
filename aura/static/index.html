@@ -118,6 +118,7 @@
   .iconbtn.dim{background:#262a38}
   .iconbtn.on{background:#1f8a4c}
   #micBtn.listening{background:#e0245e;animation:pulse 1.2s infinite}
+  #micBtn.recording{background:#e0245e}
   @keyframes pulse{50%{opacity:.6}}
   /* ── topics ── */
   .chapter{margin-top:18px}
@@ -263,16 +264,14 @@
             onclick="toggleEpMode()">🎓 Teach me</button>
     <button class="btn small gray" id="finishEpBtn" style="display:none"
             onclick="finishEpisode()">✅ Finish &amp; score</button>
-    <button class="iconbtn dim" id="voiceBtn" title="hands-free voice mode"
-            onclick="toggleIO()" style="width:38px;height:38px;font-size:15px">🎙</button>
   </div>
   <div id="chatList"></div>
   <div id="roundBar"><span>🎯 <b id="roundName"></b> round in progress</span>
     <button onclick="cmd('end')">End round &amp; get feedback</button></div>
   <div id="composer"><div class="inner">
-    <button class="iconbtn dim" id="speakBtn" title="read replies aloud" onclick="toggleSpeak()">🔊</button>
     <textarea id="input" rows="1" placeholder="Type your answer…"></textarea>
-    <button class="iconbtn dim" id="micBtn" title="dictate" onclick="toggleMic()">🎙</button>
+    <button class="iconbtn dim" id="micBtn" title="start voice recording"
+            aria-label="start voice recording" onclick="toggleMic()">🎙</button>
     <button class="iconbtn" onclick="sendMsg()">➤</button>
   </div></div>
 </div>
@@ -361,7 +360,7 @@ let roundMode = 'mentor';           // mentor | behavioral | mock | design
 let curEpisode = null;              // {ci, ei, title}
 let mentorMsgs = [], episodeMsgs = [];
 let stat = {due:0, plan:null};
-let busy = false, speakOn = false, rec = null, voiceMode = false;
+let busy = false, rec = null, recChunks = [];
 let planCache = null;
 
 const $ = id => document.getElementById(id);
@@ -593,10 +592,6 @@ function addMsg(role, text){
   const list = $('chatList');
   list.appendChild(msgEl(role, text));
   list.scrollTop = list.scrollHeight;
-  if(role === 'ai'){
-    if(voiceMode) speak(speechText(text), autoListen);
-    else if(speakOn) speak(speechText(text));
-  }
 }
 function typing(on){
   let t = $('t');
@@ -1105,75 +1100,83 @@ async function submitCode(){
 }
 function closeModal(id){ $(id).classList.remove('open'); }
 
-/* ═══════════ voice (browser-native) ═══════════ */
-function speak(text, onend){
-  try{
-    const u = new SpeechSynthesisUtterance(text); u.rate = 1.05;
-    if(onend) u.onend = onend;
-    speechSynthesis.cancel(); speechSynthesis.speak(u);
-  }catch(e){ if(onend) onend(); }
+/* ═══════════ voice recording upload ═══════════ */
+function setMicState(on){
+  const btn = $('micBtn');
+  btn.classList.toggle('listening', on);
+  btn.classList.toggle('recording', on);
+  btn.textContent = on ? '■' : '🎙';
+  btn.title = on ? 'stop recording' : 'start voice recording';
+  btn.setAttribute('aria-label', btn.title);
 }
-function toggleIO(){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!voiceMode && !SR){ toast('⚠ Voice input needs Chrome or Safari.'); return; }
-  voiceMode = !voiceMode;
-  $('voiceBtn').classList.toggle('on', voiceMode);
-  if(voiceMode){
-    speakOn = true; $('speakBtn').classList.add('on');
-    toast('🎙 Hands-free mode: replies are spoken, then the mic opens. Pause to send.', 4000);
-    autoListen();
-  } else {
-    speakOn = false; $('speakBtn').classList.remove('on');
-    speechSynthesis.cancel();
-    if(rec) rec.stop();
-    toast('Voice mode off.');
+function pickAudioMime(){
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+}
+function blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+async function toggleMic(){
+  if(rec && rec.state === 'recording'){ rec.stop(); return; }
+  if(busy){ toast('Aura is still replying. Try again in a moment.'); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ||
+     !window.MediaRecorder){
+    toast('Voice recording is not supported in this browser.');
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime = pickAudioMime();
+    recChunks = [];
+    rec = new MediaRecorder(stream, mime ? {mimeType:mime} : undefined);
+    rec.ondataavailable = e => { if(e.data && e.data.size) recChunks.push(e.data); };
+    rec.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      setMicState(false);
+      const blob = new Blob(recChunks, {type: rec.mimeType || mime || 'audio/webm'});
+      rec = null; recChunks = [];
+      if(blob.size) sendAudio(blob);
+    };
+    rec.onerror = () => {
+      stream.getTracks().forEach(t => t.stop());
+      rec = null; recChunks = []; setMicState(false);
+      toast('Voice recording stopped.');
+    };
+    rec.start();
+    setMicState(true);
+    toast('Recording... tap the red stop button when done.', 3000);
+  }catch(e){
+    rec = null; recChunks = []; setMicState(false);
+    toast('Microphone permission is blocked. Allow mic access in your browser.', 4200);
   }
 }
-function autoListen(){
-  if(!voiceMode || busy || rec) return;
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR) return;
-  const btn = $('micBtn');
-  rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false;
-  let finalText = '';
-  rec.onresult = e => {
-    let interim = '';
-    for(let i = e.resultIndex; i < e.results.length; i++){
-      if(e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
-      else interim += e.results[i][0].transcript;
-    }
-    $('input').value = (finalText + interim).trim(); autosize();
-  };
-  rec.onend = () => {
-    rec = null; btn.classList.remove('listening');
-    if(voiceMode && $('input').value.trim()) sendMsg();
-  };
-  rec.onerror = () => { rec = null; btn.classList.remove('listening'); };
-  btn.classList.add('listening'); rec.start();
-}
-function toggleSpeak(){
-  speakOn = !speakOn;
-  $('speakBtn').classList.toggle('on', speakOn);
-  if(!speakOn) speechSynthesis.cancel();
-}
-function toggleMic(){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ toast('⚠ Voice input needs Chrome or Safari.'); return; }
-  const btn = $('micBtn');
-  if(rec){ rec.stop(); return; }
-  rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
-  let finalText = $('input').value ? $('input').value + ' ' : '';
-  rec.onresult = e => {
-    let interim = '';
-    for(let i = e.resultIndex; i < e.results.length; i++){
-      if(e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
-      else interim += e.results[i][0].transcript;
-    }
-    $('input').value = (finalText + interim).trim(); autosize();
-  };
-  rec.onend = () => { rec = null; btn.classList.remove('listening'); };
-  rec.onerror = () => { rec = null; btn.classList.remove('listening'); };
-  btn.classList.add('listening'); rec.start();
+async function sendAudio(blob){
+  if(chatMode === 'mentor' && !sessionLive){ await startMentor(); if(!sessionLive) return; }
+  busy = true; typing(true);
+  addMsg('sys', '— transcribing your voice answer… —');
+  try{
+    const data_b64 = await blobToBase64(blob);
+    const res = await api('/api/audio/message', {
+      chat: chatMode,
+      mime: blob.type || 'audio/webm',
+      filename: blob.type && blob.type.includes('mp4') ? 'voice.m4a' : 'voice.webm',
+      data_b64
+    });
+    busy = false; typing(false);
+    if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+    addMsg('me', res.text || '[voice answer]');
+    addMsg('ai', res.reply);
+    (res.extra || []).forEach(x => addMsg('sys', x));
+    if(res.mode){ roundMode = res.mode; setChatHeader(); }
+  }catch(e){
+    busy = false; typing(false);
+    addMsg('sys', '⚠ Could not upload that recording. Try again.');
+  }
 }
 
 /* ═══════════ composer ═══════════ */

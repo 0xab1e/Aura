@@ -13,6 +13,8 @@ Run:  python interview_agent.py --web   then open http://localhost:8765
 
 import base64
 import json
+import mimetypes
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,10 +22,22 @@ from pathlib import Path
 from datetime import date as _date
 
 from . import coding, curriculum, flashcards, memory, schedule
+from .backend import CodexThread
 from .session import AuraSession, SetupError, load_jd, load_resume
 from .users import MAX_UPLOAD_BYTES, UserStore
 
 PROFILE_SAVE_EVERY = 6   # mentor turns between background profile saves
+TRANSCRIBE_PROMPT = """\
+The user recorded an interview-practice answer as an audio file.
+
+Server audio file path:
+{path}
+
+You are running inside Codex CLI on the server. Use that server file as the
+source. Transcribe the candidate's speech faithfully. Keep technical terms,
+acronyms, and filler words when they matter. Return only the transcript text,
+with no commentary, markdown, or explanation.
+"""
 
 STATIC_DIR = Path(__file__).parent / "static"
 PORT = 8765
@@ -141,6 +155,98 @@ def _clear_live(user: UserStore) -> None:
         pass
 
 
+def _audio_ext(mime: str, filename: str) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in (".webm", ".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".ogg"):
+        return suffix
+    if "webm" in mime:
+        return ".webm"
+    if "mp4" in mime or "m4a" in mime:
+        return ".m4a"
+    if "mpeg" in mime or "mp3" in mime:
+        return ".mp3"
+    if "wav" in mime:
+        return ".wav"
+    if "ogg" in mime:
+        return ".ogg"
+    return mimetypes.guess_extension(mime.split(";")[0]) or ".webm"
+
+
+def _save_audio_upload(user: UserStore, body: dict) -> tuple[Path, str]:
+    try:
+        data = base64.b64decode(body.get("data_b64", ""), validate=True)
+    except Exception:
+        raise RuntimeError("bad audio upload encoding")
+    if not data:
+        raise RuntimeError("empty recording")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise RuntimeError("recording too large (15 MB max)")
+    mime = (body.get("mime") or "audio/webm").split(",", 1)[0]
+    filename = body.get("filename") or "voice.webm"
+    audio_dir = user.dir / "audio"
+    audio_dir.mkdir(exist_ok=True)
+    path = audio_dir / f"voice_{secrets.token_hex(8)}{_audio_ext(mime, filename)}"
+    path.write_bytes(data)
+    return path, mime
+
+
+def _transcribe_audio(path: Path, mime: str) -> str:
+    prompt = TRANSCRIBE_PROMPT.format(path=path.resolve())
+    text = CodexThread().turn(prompt, first=True).strip()
+    if text.startswith("```") and text.endswith("```"):
+        text = text.strip("`").strip()
+        if text.lower().startswith("text"):
+            text = text[4:].strip()
+    if not text:
+        raise RuntimeError("Codex returned no transcript")
+    return text
+
+
+def _send_mentor_text(user: UserStore, entry: dict, text: str) -> dict:
+    s = entry["session"]
+    if s is None or not entry["started"]:
+        return {"error": "session not started â€” reload the page",
+                "need_setup": not user.has_jd}
+    _remember(entry, "me", text)
+    reply = s.send(text)
+    _remember(entry, "ai", reply)
+    cont = s.maybe_compact()
+    if cont:
+        _remember(entry, "ai", cont)
+    # keep the shared skill profile fresh so episodes, schedules, and
+    # flashcards see what the chat just taught â€” not only at quit time
+    entry["turns"] += 1
+    if entry["turns"] % PROFILE_SAVE_EVERY == 0:
+        threading.Thread(target=_checkpoint_profile, args=(entry,),
+                         daemon=True).start()
+    _save_live(user, entry)
+    return {"reply": reply, "extra": [cont] if cont else [], "mode": s.mode}
+
+
+def _send_episode_text(user: UserStore, entry: dict, text: str) -> dict:
+    ep = entry.get("episode")
+    if not ep:
+        return {"error": "no episode in progress â€” pick a topic first"}
+    reply = ep["session"].send(text)
+    ep["history"].append({"role": "me", "text": text})
+    ep["history"].append({"role": "ai", "text": reply})
+    _save_live(user, entry)
+    return {"reply": reply}
+
+
+def _handle_audio_message(body: dict, user: UserStore, entry: dict) -> dict:
+    path, mime = _save_audio_upload(user, body)
+    text = _transcribe_audio(path, mime)
+    target = body.get("chat") or "mentor"
+    result = (_send_episode_text(user, entry, text)
+              if target == "episode" else
+              _send_mentor_text(user, entry, text))
+    if result.get("error"):
+        return result
+    result["text"] = text
+    return result
+
+
 def _hydrate(user: UserStore, entry: dict) -> None:
     """After a server restart, rebuild this user's live sessions from disk.
     Codex stores the actual conversations; we resume them by thread id."""
@@ -217,6 +323,9 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
                 "due": len(flashcards.due_cards(s.deck)),
                 "user": user.slug, "display_name": user.display_name}
 
+    if path == "/api/audio/message":
+        return _handle_audio_message(body, user, entry)
+
     if path.startswith("/api/learn/"):
         return _handle_learn(path, body, user, entry)
 
@@ -276,21 +385,7 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
 
     if path == "/api/message":
         text = body.get("text", "")
-        _remember(entry, "me", text)
-        reply = s.send(text)
-        _remember(entry, "ai", reply)
-        cont = s.maybe_compact()
-        if cont:
-            _remember(entry, "ai", cont)
-        # keep the shared skill profile fresh so episodes, schedules, and
-        # flashcards see what the chat just taught — not only at quit time
-        entry["turns"] += 1
-        if entry["turns"] % PROFILE_SAVE_EVERY == 0:
-            threading.Thread(target=_checkpoint_profile, args=(entry,),
-                             daemon=True).start()
-        _save_live(user, entry)
-        return {"reply": reply, "extra": [cont] if cont else [], "mode": s.mode}
-
+        return _send_mentor_text(user, entry, text)
     if path == "/api/command":
         cmd = body.get("cmd", "")
         if cmd == "debrief":
@@ -524,11 +619,7 @@ def _handle_learn(path: str, body: dict, user: UserStore,
 
     if path == "/api/learn/message":
         text = body.get("text", "")
-        reply = ep["session"].send(text)
-        ep["history"].append({"role": "me", "text": text})
-        ep["history"].append({"role": "ai", "text": reply})
-        _save_live(user, entry)
-        return {"reply": reply}
+        return _send_episode_text(user, entry, text)
 
     if path == "/api/learn/mode":
         mode = body.get("mode", "")
@@ -562,6 +653,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, content: bytes, ctype: str) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)

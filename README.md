@@ -68,11 +68,10 @@ On your phone (same wifi): `http://<your-computer-ip>:8765`
 (find your IP with `ipconfig` on Windows or `ifconfig`/`ip addr` on Mac/Linux).
 
 Responsive chat UI with command chips, a bottom-sheet code editor for coding
-rounds, a flashcard review sheet, and **browser-native voice** with a one-tap
-**Voice/Text switch** in the header: voice mode speaks each reply, then opens
-the mic automatically and sends when you pause — fully hands-free. You can
-also use 🎙 (dictate) and 🔊 (read aloud) individually in text mode. No Python
-audio packages needed.
+rounds, a flashcard review sheet, and server-side voice replies: tap 🎙 to
+start recording, tap the red stop button to finish, and Aura uploads the audio
+for Codex CLI transcription before sending it as your answer. Text replies stay
+text-only. No phone speech-recognition is used.
 
 ### In-session commands (CLI) / chips (web)
 
@@ -153,8 +152,8 @@ python interview_agent.py --voice
 Aura's replies are spoken aloud (edge-tts) and you answer by mic (local Whisper,
 push-to-talk: Enter to start/stop, transcript confirmed before sending). You can
 always still type, and `voice`/`text` toggle mid-session. If any dependency is
-missing it falls back to text mode with a hint. *(The web UI doesn't need any of
-this — it uses the browser's built-in speech APIs.)*
+missing it falls back to text mode with a hint. *(The web UI is separate: it
+uploads recordings to the server and uses Codex CLI for transcription.)*
 
 ## Project layout
 
@@ -199,7 +198,7 @@ aura/
   replace the example JD with your real one.
 - **Phone can't reach the web UI** — both devices must be on the same network;
   check your firewall allows the port (default 8765).
-- **Voice input not working in the browser** — use Chrome or Safari;
-  SpeechRecognition isn't available in all browsers.
+- **Voice input not working in the browser** — allow microphone access and make
+  sure the server's Codex CLI is installed, logged in, and able to run.
 - **Replies feel slow** — each turn is a real model call through the Codex CLI;
   this is normal. The web UI shows "Aura is thinking…" while a turn runs.
