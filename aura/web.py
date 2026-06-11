@@ -194,7 +194,7 @@ def _save_audio_upload(user: UserStore, body: dict) -> tuple[Path, str]:
 def _transcribe_audio(path: Path, mime: str) -> str:
     prompt = TRANSCRIBE_PROMPT.format(path=path.resolve())
     try:
-        text = CodexThread().turn(prompt, first=True, timeout=45).strip()
+        text = CodexThread().turn(prompt, first=True, timeout=8).strip()
     except RuntimeError:
         text = _transcribe_audio_with_whisper(path)
     if text.startswith("```") and text.endswith("```"):
