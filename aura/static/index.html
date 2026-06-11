@@ -436,6 +436,15 @@ function paintHome(){
       <div class="act"><button class="btn" onclick="show('scrDocs')">Upload documents</button></div>
     </div>`;
   } else {
+    if(stat.episode){
+      h += `
+    <div class="card tappable" onclick="resumeLiveEpisode()">
+      <h3>⏸ Lesson in progress</h3>
+      <p>“${esc(stat.episode.title)}” is waiting — continue the same
+         conversation from any device.</p>
+      <div class="act"><button class="btn">Resume lesson</button></div>
+    </div>`;
+    }
     const ivs = (stat.interviews || []).filter(i => ivDays(i.date) >= 0);
     if(ivs.length){
       const next = ivs[0];
@@ -824,19 +833,43 @@ function schedTap(ivId, date, idx){
   else if(it.type === 'chat'){ goChat(); }
   else if(it.type === 'mock' || it.type === 'behavioral' || it.type === 'design') startRound(it.type);
 }
-async function startEpisode(ci, ei){
+async function startEpisode(ci, ei, force){
   if(busy) return;
   const ep = planCache.chapters[ci].episodes[ei];
   chatMode = 'episode';
   curEpisode = {ci, ei, title: ep.title};
   episodeMsgs = [];
   show('scrChat'); setChatHeader(); renderChat();
-  addMsg('sys', '📚 Lesson: ' + ep.title + ' — answer naturally, Aura teaches as you go. Tap “Finish & score” when you want your result.');
   busy = true; typing(true);
-  const res = await api('/api/learn/start', {chapter:ci, episode:ei});
+  const res = await api('/api/learn/start',
+    force ? {chapter:ci, episode:ei, force:true} : {chapter:ci, episode:ei});
   busy = false; typing(false);
+  if(res.need_force){
+    chatMode = 'mentor'; curEpisode = null;
+    if(confirm('You have another lesson in progress: "' + res.live_title +
+               '". Abandon it (no score) and start this one instead?')){
+      startEpisode(ci, ei, true);
+    } else {
+      show('scrTopics');
+    }
+    return;
+  }
   if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
+  if(res.resumed){
+    episodeMsgs = (res.history || []).slice(); renderChat();
+    addMsg('sys', '⏸ Resumed where you left off — same lesson, same conversation, on every device.');
+    return;
+  }
+  addMsg('sys', '📚 Lesson: ' + ep.title + ' — answer naturally, Aura teaches as you go. Tap “Finish & score” when you want your result.');
   addMsg('ai', res.reply);
+}
+async function resumeLiveEpisode(){
+  if(!stat.episode) return;
+  if(!planCache){
+    const r = await api('/api/learn/plan', {});
+    if(r.plan) planCache = r.plan;
+  }
+  if(planCache) startEpisode(stat.episode.chapter, stat.episode.episode);
 }
 async function finishEpisode(){
   if(busy || chatMode !== 'episode') return;

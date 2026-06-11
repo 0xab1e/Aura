@@ -38,7 +38,7 @@ def _entry(slug: str) -> dict:
         return _sessions.setdefault(slug, {
             "session": None, "started": False, "reply0": "",
             "coding": None, "history": [], "episode": None,
-            "turns": 0, "lock": threading.Lock(),
+            "turns": 0, "hydrated": False, "lock": threading.Lock(),
         })
 
 
@@ -79,6 +79,7 @@ def _upload(user: UserStore, body: dict) -> dict:
     # New documents change the brief — drop any live session so the next
     # start is grounded in them. Memory/flashcards persist on disk.
     _reset_entry(user.slug)
+    _clear_live(user)
     label = "Job description" if kind == "jd" else "Resume"
     return {"ok": True, "kind": kind, "chars": chars,
             "has_jd": user.has_jd, "has_resume": user.has_resume,
@@ -104,8 +105,90 @@ def handle_api(path: str, body: dict) -> dict:
         return _handle_session_api(path, body, user, entry)
 
 
+def _live_file(user: UserStore):
+    return user.dir / "live.json"
+
+
+def _save_live(user: UserStore, entry: dict) -> None:
+    """Persist live conversation state (thread ids + visible history) so any
+    device — and a server restart — resumes the same conversations."""
+    data = {}
+    s = entry.get("session")
+    if s is not None and entry["started"]:
+        data["mentor"] = {"thread_id": s.thread.thread_id, "mode": s.mode,
+                          "history": entry["history"][-200:],
+                          "turns": entry["turns"],
+                          "ctx": {"chars": s.ctx.chars, "turns": s.ctx.turns}}
+    ep = entry.get("episode")
+    if ep is not None:
+        data["episode"] = {"thread_id": ep["session"].thread.thread_id,
+                           "ch": ep["ch"], "ep": ep["ep"],
+                           "history": ep.get("history", [])[-200:]}
+    try:
+        _live_file(user).write_text(json.dumps(data))
+    except OSError:
+        pass
+
+
+def _clear_live(user: UserStore) -> None:
+    try:
+        _live_file(user).unlink()
+    except (FileNotFoundError, OSError):
+        pass
+
+
+def _hydrate(user: UserStore, entry: dict) -> None:
+    """After a server restart, rebuild this user's live sessions from disk.
+    Codex stores the actual conversations; we resume them by thread id."""
+    if entry["hydrated"]:
+        return
+    entry["hydrated"] = True
+    f = _live_file(user)
+    if not f.exists():
+        return
+    try:
+        data = json.loads(f.read_text())
+    except (json.JSONDecodeError, OSError):
+        return
+    m = data.get("mentor")
+    if m and m.get("thread_id") and entry["session"] is None:
+        log_snapshot = (user.session_log.read_text()
+                        if user.session_log.exists() else None)
+        try:
+            s = AuraSession(user, repo_fallback=False)
+        except SetupError:
+            s = None
+        if s is not None:
+            if log_snapshot is not None:   # keep the transcript mid-session
+                user.session_log.write_text(log_snapshot)
+            s.thread.thread_id = m["thread_id"]
+            s.mode = m.get("mode", "mentor")
+            ctx = m.get("ctx", {})
+            s.ctx.chars = ctx.get("chars", 0)
+            s.ctx.turns = ctx.get("turns", 0)
+            entry["session"] = s
+            entry["started"] = True
+            entry["history"] = m.get("history", [])
+            entry["turns"] = m.get("turns", 0)
+    e = data.get("episode")
+    if e and e.get("thread_id") and entry.get("episode") is None:
+        cur = curriculum.load_curriculum(user)
+        try:
+            chapter = cur["chapters"][e["ch"]]
+            episode = chapter["episodes"][e["ep"]]
+            jd, resume = _user_docs(user)
+        except (TypeError, KeyError, IndexError, SetupError):
+            return
+        es = curriculum.EpisodeSession(user, jd, resume, chapter, episode)
+        es.thread.thread_id = e["thread_id"]
+        entry["episode"] = {"session": es, "ch": e["ch"], "ep": e["ep"],
+                            "history": e.get("history", [])}
+
+
 def _handle_session_api(path: str, body: dict, user: UserStore,
                         entry: dict) -> dict:
+    _hydrate(user, entry)
+
     if path == "/api/start":
         if entry["session"] is None:
             try:
@@ -117,6 +200,7 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
             entry["reply0"] = s.start()
             entry["started"] = True
             _remember(entry, "ai", entry["reply0"])
+            _save_live(user, entry)
             return {"reply": entry["reply0"], "mode": s.mode,
                     "due": len(flashcards.due_cards(s.deck)),
                     "user": user.slug, "display_name": user.display_name}
@@ -140,10 +224,14 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
             eps = [e for c in cur["chapters"] for e in c["episodes"]]
             plan = {"total": len(eps),
                     "done": sum(1 for e in eps if e["status"] == "done")}
+        live_ep = entry.get("episode")
         return {"has_jd": user.has_jd, "has_resume": user.has_resume,
                 "due": len(flashcards.due_cards(deck)),
                 "started": entry["started"], "plan": plan,
-                "episode_live": entry.get("episode") is not None,
+                "episode_live": live_ep is not None,
+                "episode": ({"chapter": live_ep["ch"], "episode": live_ep["ep"],
+                             "title": live_ep["session"].episode["title"]}
+                            if live_ep else None),
                 "display_name": user.display_name,
                 "interviews": [{"id": i["id"], "label": i["label"],
                                 "date": i["date"]}
@@ -187,6 +275,7 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         if entry["turns"] % PROFILE_SAVE_EVERY == 0:
             threading.Thread(target=_checkpoint_profile, args=(entry,),
                              daemon=True).start()
+        _save_live(user, entry)
         return {"reply": reply, "extra": [cont] if cont else [], "mode": s.mode}
 
     if path == "/api/command":
@@ -194,18 +283,22 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         if cmd == "debrief":
             reply, summary = s.debrief()
             _remember(entry, "ai", reply)
+            _save_live(user, entry)
             return {"reply": reply, "extra": [summary] if summary else [], "mode": s.mode}
         if cmd in ("behavioral", "mock", "design"):
             reply = s.switch_mode(cmd)
             _remember(entry, "ai", reply)
+            _save_live(user, entry)
             return {"reply": reply, "extra": [], "mode": s.mode}
         if cmd == "end":
             reply = s.end_round()
             _remember(entry, "ai", reply)
+            _save_live(user, entry)
             return {"reply": reply, "extra": [], "mode": s.mode}
         if cmd == "quit":
             summary = s.end()
             _reset_entry(user.slug)
+            _clear_live(user)
             return {"reply": "Session saved. See you next time — you've got this.",
                     "extra": [summary] if summary else [], "mode": s.mode}
         return {"error": f"unknown command {cmd}"}
@@ -227,6 +320,7 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
                                      code=body.get("code", ""))
         entry["coding"] = None
         _remember(entry, "ai", review)
+        _save_live(user, entry)
         return {"reply": review, "mode": s.mode}
 
     return {"error": "not found"}
@@ -358,6 +452,18 @@ def _handle_learn(path: str, body: dict, user: UserStore,
             ch_i, ep_i = int(body.get("chapter")), int(body.get("episode"))
         except (TypeError, ValueError):
             return {"error": "bad episode reference"}
+        live = entry.get("episode")
+        # same lesson already in progress (other device / page reload):
+        # resume the SAME conversation, don't start a parallel one
+        if live and live["ch"] == ch_i and live["ep"] == ep_i:
+            return {"resumed": True, "history": live.get("history", []),
+                    "chapter": live["session"].chapter["title"],
+                    "episode": live["session"].episode["title"]}
+        # a different lesson is live: make the user decide, don't silently
+        # abandon it
+        if live and not body.get("force"):
+            return {"need_force": True,
+                    "live_title": live["session"].episode["title"]}
         cur = curriculum.load_curriculum(user)
         if cur is None or ch_i < 0 or ep_i < 0:
             return {"error": "no topic plan yet — open Topics first"}
@@ -372,8 +478,10 @@ def _handle_learn(path: str, body: dict, user: UserStore,
             return {"error": str(e), "need_setup": True}
         es = curriculum.EpisodeSession(user, jd, resume, chapter, episode)
         reply = es.start()
-        entry["episode"] = {"session": es, "ch": ch_i, "ep": ep_i}
+        entry["episode"] = {"session": es, "ch": ch_i, "ep": ep_i,
+                            "history": [{"role": "ai", "text": reply}]}
         curriculum.mark_episode(user, ch_i, ep_i, "in_progress")
+        _save_live(user, entry)
         return {"reply": reply, "chapter": chapter["title"],
                 "episode": episode["title"]}
 
@@ -382,13 +490,19 @@ def _handle_learn(path: str, body: dict, user: UserStore,
         return {"error": "no episode in progress — pick a topic first"}
 
     if path == "/api/learn/message":
-        return {"reply": ep["session"].send(body.get("text", ""))}
+        text = body.get("text", "")
+        reply = ep["session"].send(text)
+        ep["history"].append({"role": "me", "text": text})
+        ep["history"].append({"role": "ai", "text": reply})
+        _save_live(user, entry)
+        return {"reply": reply}
 
     if path == "/api/learn/finish":
         result = ep["session"].finish()
         curriculum.mark_episode(user, ep["ch"], ep["ep"], "done",
                                 result.get("mastery"))
         entry["episode"] = None
+        _save_live(user, entry)
         return result
 
     return {"error": "not found"}
