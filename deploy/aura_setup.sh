@@ -28,6 +28,9 @@ server {
     listen [::]:80;
     server_name aura.34.93.196.79.sslip.io;
 
+    # Audio is uploaded as base64 JSON; 15 MB of audio becomes ~20 MB on the wire.
+    client_max_body_size 32m;
+
     # Model turns can take a while
     proxy_connect_timeout 300;
     proxy_send_timeout 300;

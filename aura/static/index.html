@@ -1296,6 +1296,11 @@ async function sendPendingAudio(){
   await sendAudio(pendingAudio);
 }
 async function sendAudio(blob){
+  if(blob.size > 15*1024*1024){
+    addMsg('sys', '⚠ Recording too large — 15 MB max. Please record a shorter answer.');
+    toast('Recording too large — 15 MB max.', 4500);
+    return;
+  }
   if(chatMode === 'mentor' && !sessionLive){ await startMentor(); if(!sessionLive) return; }
   busy = true; typing(true);
   $('recordSendBtn').disabled = true;

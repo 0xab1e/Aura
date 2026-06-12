@@ -697,6 +697,18 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, b"not found", "text/plain")
 
+    def do_HEAD(self):
+        if self.path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.end_headers()
+
     def do_POST(self):
         if not self.path.startswith("/api/"):
             self._send(404, b"not found", "text/plain")
