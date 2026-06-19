@@ -1012,7 +1012,7 @@ function schedTap(ivId, date, idx){
     else toast('This lesson is from an older plan — rebuild the schedule.');
   }
   else if(it.type === 'flashcards') show('scrCards');
-  else if(it.type === 'coding') startCodeFromHome();
+  else if(it.type === 'coding') startCodeFromHome((it.title || '') + '\n' + (it.why || ''));
   else if(it.type === 'chat'){ goChat(); }
   else if(it.type === 'mock' || it.type === 'behavioral' || it.type === 'design') startRound(it.type);
 }
@@ -1163,16 +1163,16 @@ $('filePick').addEventListener('change', async e => {
 });
 
 /* ═══════════ coding round ═══════════ */
-async function startCodeFromHome(){
+async function startCodeFromHome(topic){
   await goChat();
   if(!sessionLive) return;
-  startCode();
+  startCode(topic || '');
 }
-async function startCode(){
+async function startCode(topic){
   if(busy) return;
   addMsg('sys', '— preparing a coding exercise for you… —');
   busy = true; typing(true);
-  const res = await api('/api/code/start', {});
+  const res = await api('/api/code/start', {topic: topic || ''});
   busy = false; typing(false);
   if(res.error){ addMsg('sys', '⚠ ' + res.error); return; }
   $('codeTitle').textContent = '💻 ' + (res.title || 'Coding round');

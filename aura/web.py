@@ -444,7 +444,8 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         return {"error": f"unknown command {cmd}"}
 
     if path == "/api/code/start":
-        setup = coding.setup_round(s.thread, user.workspace_dir)
+        setup = coding.setup_round(s.thread, user.workspace_dir,
+                                   body.get("topic", ""))
         if setup is None:
             return {"error": "couldn't set up a coding problem — try again"}
         data, pdir = setup
@@ -457,7 +458,7 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
         if not entry["coding"]:
             return {"pending": False}
         data, pdir = entry["coding"]
-        solution = pdir / "solution.py"
+        solution = coding._solution_path(data, pdir)
         return {"pending": True, "title": data.get("title", ""),
                 "statement": data["statement"],
                 "code": solution.read_text() if solution.exists() else
@@ -466,8 +467,8 @@ def _handle_session_api(path: str, body: dict, user: UserStore,
     if path == "/api/code/save":
         if not entry["coding"]:
             return {"error": "no coding round in progress"}
-        _, pdir = entry["coding"]
-        (pdir / "solution.py").write_text(body.get("code", ""))
+        data, pdir = entry["coding"]
+        coding._solution_path(data, pdir).write_text(body.get("code", ""))
         return {"ok": True}
 
     if path == "/api/code/submit":
