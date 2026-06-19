@@ -47,6 +47,8 @@ Rules:
   relevant to it first.
 - Each day: 2-4 items, roughly 60-90 minutes total. Item types:
     "episode"    — one of the episode ids above (the main learning unit)
+    "coding"     — a hands-on coding exercise in the app; use this when the
+                   interview includes implementation tasks or code evaluation
     "flashcards" — review due cards (5-10 min, most days)
     "mock" | "behavioral" | "design" — practice rounds; put a full mock in
                    the last 2-3 days, behavioral/design where relevant

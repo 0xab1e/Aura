@@ -522,12 +522,17 @@ def _handle_interviews(path: str, body: dict, user: UserStore) -> dict:
         except SetupError as e:
             return {"error": str(e), "need_setup": True}
         cur = curriculum.load_curriculum(user)
+        profile = memory.load_profile(user.profile_file)
         if cur is None:   # the schedule plans around episodes, so build them
-            profile = memory.load_profile(user.profile_file)
             try:
                 cur = curriculum.generate_curriculum(user, jd, resume, profile)
             except RuntimeError as e:
                 return {"error": str(e)}
+        try:
+            cur = curriculum.ensure_interview_coverage(
+                user, label, date, focus, jd, resume, profile, cur)
+        except RuntimeError as e:
+            return {"error": str(e)}
         try:
             iv = schedule.add_interview(user, label, date, focus, today,
                                         jd, resume, cur)
@@ -547,6 +552,17 @@ def _handle_interviews(path: str, body: dict, user: UserStore) -> dict:
         cur = curriculum.load_curriculum(user)
         if cur is None:
             return {"error": "no study plan yet — add the interview again"}
+        profile = memory.load_profile(user.profile_file)
+        try:
+            interviews = schedule.load_interviews(user)
+            current = next((i for i in interviews
+                            if i["id"] == body.get("id", "")), None)
+            if current is not None:
+                cur = curriculum.ensure_interview_coverage(
+                    user, current.get("label", ""), current.get("date", ""),
+                    current.get("focus", ""), jd, resume, profile, cur)
+        except RuntimeError as e:
+            return {"error": str(e)}
         try:
             iv = schedule.regenerate(user, body.get("id", ""), _today(body),
                                      jd, resume, cur)

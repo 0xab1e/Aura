@@ -904,7 +904,7 @@ function itemDone(it){
   return !!it.done;
 }
 const ITEM_ICONS = {episode:'📚', flashcards:'🃏', mock:'🎤', behavioral:'🗣',
-                    design:'🏗', chat:'💬', rest:'🌴'};
+                    design:'🏗', coding:'💻', chat:'💬', rest:'🌴'};
 function itemHtml(ivId, date, it, idx, showTick){
   const done = itemDone(it);
   const tick = it.type === 'episode'
@@ -1012,6 +1012,7 @@ function schedTap(ivId, date, idx){
     else toast('This lesson is from an older plan — rebuild the schedule.');
   }
   else if(it.type === 'flashcards') show('scrCards');
+  else if(it.type === 'coding') startCodeFromHome();
   else if(it.type === 'chat'){ goChat(); }
   else if(it.type === 'mock' || it.type === 'behavioral' || it.type === 'design') startRound(it.type);
 }

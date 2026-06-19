@@ -47,6 +47,50 @@ Output JSON only:
                   "focus": "<one line: exactly what is taught and tested>"}}]}}]}}
 Output ONLY the JSON.]"""
 
+COVERAGE_PROMPT = """\
+[SYSTEM TASK - inspect and extend an existing interview-prep curriculum.
+
+THE NEW INTERVIEW:
+"{label}" on {date}{focus_line}
+
+THE JOB DESCRIPTION:
+---
+{jd}
+---
+THE CANDIDATE'S RESUME:
+---
+{resume}
+---
+{memory}
+EXISTING CURRICULUM:
+{existing}
+
+Decide whether the existing curriculum actually covers what THIS new interview
+will test. Do not match by title alone. Check the requested round format,
+deliverables, and evaluation style.
+
+If the interview asks for hands-on coding, implementation tasks, live coding,
+writing functions, tests, debugging code, or code evaluation, the curriculum
+must include practice episodes that explicitly make the candidate write,
+review, test, and explain code. Theory-only episodes, concept review, and
+"code review drill" episodes are not enough.
+
+If important coverage is missing, add the smallest set of new chapters/episodes
+needed. Prefer adding a focused chapter over rewriting existing chapters.
+Each episode should be a teach-and-test unit, but for coding rounds its focus
+must explicitly require implementation practice and evaluation criteria.
+
+Output JSON only:
+{{"needed": true|false,
+ "reason": "<one concise sentence>",
+ "chapters": [{{"title": "<short chapter title>",
+               "why": "<why this is missing and needed>",
+               "episodes": [{{"title": "<short episode title>",
+                             "focus": "<exactly what is practiced/tested>"}}]}}]}}
+
+If nothing is missing, output {{"needed": false, "reason": "...", "chapters": []}}.
+Output ONLY the JSON.]"""
+
 EPISODE_BRIEF = """\
 You are Aura, an elite interview mentor running a FOCUSED micro-lesson —
 one topic only, teach + test, nothing else.
@@ -137,6 +181,68 @@ def load_curriculum(user: UserStore) -> dict | None:
 
 def save_curriculum(user: UserStore, cur: dict) -> None:
     curriculum_file(user).write_text(json.dumps(cur, indent=2))
+
+
+def _curriculum_lines(cur: dict) -> str:
+    lines = []
+    for ci, ch in enumerate(cur.get("chapters", [])):
+        lines.append(f"ch{ci}: {ch.get('title', '')} - {ch.get('why', '')}")
+        for ei, ep in enumerate(ch.get("episodes", [])):
+            lines.append(
+                f"  ch{ci}.ep{ei}: {ep.get('title', '')} - "
+                f"{ep.get('focus', '')}")
+    return "\n".join(lines) or "(no existing curriculum)"
+
+
+def _norm(text: str) -> str:
+    return " ".join((text or "").lower().split())
+
+
+def ensure_interview_coverage(user: UserStore, label: str, date: str,
+                              focus: str, jd: str, resume: str,
+                              profile: dict, cur: dict) -> dict:
+    """Append missing curriculum coverage for a newly added interview."""
+    prompt = COVERAGE_PROMPT.format(
+        label=label, date=date,
+        focus_line=(f"\nWHAT THIS INTERVIEW FOCUSES ON: {focus}" if focus else ""),
+        jd=jd, resume=resume or "(no resume provided)",
+        memory=memory.profile_brief(profile),
+        existing=_curriculum_lines(cur))
+    reply = CodexThread().turn(prompt, first=True)
+    data = extract_json(reply)
+    if not isinstance(data, dict) or not data.get("needed"):
+        return cur
+
+    existing_titles = {
+        _norm(ep.get("title", ""))
+        for ch in cur.get("chapters", [])
+        for ep in ch.get("episodes", [])
+    }
+    added = 0
+    for ch in data.get("chapters", []):
+        if not isinstance(ch, dict) or not ch.get("title"):
+            continue
+        episodes = []
+        for ep in ch.get("episodes", []):
+            if not isinstance(ep, dict) or not ep.get("title"):
+                continue
+            key = _norm(ep["title"])
+            if not key or key in existing_titles:
+                continue
+            existing_titles.add(key)
+            episodes.append({"title": ep["title"], "focus": ep.get("focus", ""),
+                             "status": "new", "score": None, "last": None})
+        if episodes:
+            cur.setdefault("chapters", []).append({
+                "title": ch["title"],
+                "why": ch.get("why", data.get("reason", "")),
+                "episodes": episodes,
+            })
+            added += len(episodes)
+    if added:
+        cur["extended"] = datetime.now(timezone.utc).isoformat()
+        save_curriculum(user, cur)
+    return cur
 
 
 def generate_curriculum(user: UserStore, jd: str, resume: str,
