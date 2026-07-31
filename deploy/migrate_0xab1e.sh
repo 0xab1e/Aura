@@ -15,6 +15,6 @@ EOF
 
 ls -la .aura/users/0xab1e/
 echo "--- login check ---"
-curl -s -X POST https://aura.34.93.196.79.sslip.io/api/login \
+curl -s -X POST https://aura.35.200.211.18.sslip.io/api/login \
      -H 'Content-Type: application/json' -d '{"name":"0xab1e"}'
 echo

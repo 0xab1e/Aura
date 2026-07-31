@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# One-shot server setup for Aura on jbel-trim-web.
+# One-shot server setup for Aura on shortsome-vm.
 set -euo pipefail
 
-DOMAIN="aura.34.93.196.79.sslip.io"
+DOMAIN="aura.35.200.211.18.sslip.io"
 PORT=8765
 
 sudo tee /etc/systemd/system/aura.service > /dev/null <<'EOF'
@@ -26,7 +26,7 @@ sudo tee /etc/nginx/sites-available/aura > /dev/null <<'EOF'
 server {
     listen 80;
     listen [::]:80;
-    server_name aura.34.93.196.79.sslip.io;
+    server_name aura.35.200.211.18.sslip.io;
 
     # Audio is uploaded as base64 JSON; 15 MB of audio becomes ~20 MB on the wire.
     client_max_body_size 32m;

@@ -4,13 +4,12 @@ Fresh assistant sessions must read this file before deploying Aura.
 
 ## Live Topology
 
-- GCP account: `anieeldhose1960@gmail.com`
-- GCP project: `project-222c4aed-d452-434d-a84`
+- GCP account: `ableudemy@gmail.com`
+- GCP project: `project-3b739ef9-9c65-426d-905`
 - Zone: `asia-south1-a`
-- VM: `jbel-trim-web`
-- Machine type: `e2-small`
-- Static/public IP: `34.93.196.79`
-- Live URL: `https://aura.34.93.196.79.sslip.io`
+- VM: `shortsome-vm`
+- Static/public IP: `35.200.211.18`
+- Live URL: `https://aura.35.200.211.18.sslip.io`
 - Code on VM: `/home/ablee/Aura`
 - Linux user: `ablee`
 - systemd unit: `aura.service`
@@ -23,7 +22,7 @@ Use the same explicit GCP access style as the Amban/Shortsome project.
 
 ```powershell
 $gcloud = "C:\Users\ablee\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
-& $gcloud compute ssh jbel-trim-web --zone=asia-south1-a --project=project-222c4aed-d452-434d-a84
+& $gcloud compute ssh shortsome-vm --zone=asia-south1-a --project=project-3b739ef9-9c65-426d-905
 ```
 
 ## Deploy Procedure
@@ -46,13 +45,13 @@ Then pull and restart on the GCP VM:
 ```powershell
 $gcloud = "C:\Users\ablee\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
 $remote = "cd /home/ablee/Aura && git pull --ff-only && sudo systemctl restart aura && sudo systemctl is-active aura && sudo journalctl -u aura -n 80 --no-pager"
-& $gcloud compute ssh jbel-trim-web --zone=asia-south1-a --project=project-222c4aed-d452-434d-a84 --command=$remote
+& $gcloud compute ssh shortsome-vm --zone=asia-south1-a --project=project-3b739ef9-9c65-426d-905 --command=$remote
 ```
 
 Verify:
 
 ```powershell
-curl.exe -sI https://aura.34.93.196.79.sslip.io/
+curl.exe -sI https://aura.35.200.211.18.sslip.io/
 ```
 
 ## Voice Recording Path
